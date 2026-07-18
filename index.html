@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<!-- index.html -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#101312">
+<meta name="description" content="The manual your house didn't come with. Maintenance schedule, appliance registry, and reminders - offline and private.">
+
+<title>Home Manual</title>
+
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Home Manual">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=Roboto+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+
+<!-- ===================================================================
+     SCREEN: Today (due tasks)
+     =================================================================== -->
+<section id="screen-today" class="screen">
+  <header class="hdr">
+    <div class="hdr-row">
+      <h1 class="wordmark" id="todayTitle">Home Manual</h1>
+      <span class="version" id="versionString">v1.0.0</span>
+    </div>
+    <p class="tagline" id="todayTagline">The manual your house didn't come with.</p>
+    <div class="rail" id="todayRail"></div>
+  </header>
+
+  <main class="wrap">
+    <div id="todayList"></div>
+  </main>
+</section>
+
+<!-- ===================================================================
+     SCREEN: Plan (all tasks by category)
+     =================================================================== -->
+<section id="screen-plan" class="screen" hidden>
+  <header class="hdr">
+    <div class="hdr-row">
+      <h1 class="wordmark">Schedule</h1>
+      <button id="btnAddTask" class="icon-btn" type="button" aria-label="Add a task">&#43;</button>
+    </div>
+    <p class="tagline">Every task, every cadence. Tap one to adjust it.</p>
+    <div class="rail" id="planRail"></div>
+  </header>
+
+  <main class="wrap">
+    <div id="planList"></div>
+  </main>
+</section>
+
+<!-- ===================================================================
+     SCREEN: Things (asset registry)
+     =================================================================== -->
+<section id="screen-things" class="screen" hidden>
+  <header class="hdr">
+    <div class="hdr-row">
+      <h1 class="wordmark">Things</h1>
+      <button id="btnAddAsset" class="icon-btn" type="button" aria-label="Add a thing">&#43;</button>
+    </div>
+    <p class="tagline">Models, sizes, warranties. What to buy when you're standing in the store.</p>
+  </header>
+
+  <main class="wrap">
+    <input id="assetSearch" class="search" type="search" placeholder="Search things, models, sizes&hellip;" autocomplete="off">
+    <div id="assetList"></div>
+  </main>
+</section>
+
+<!-- ===================================================================
+     SCREEN: Setup wizard
+     =================================================================== -->
+<section id="screen-setup" class="screen" hidden>
+  <header class="hdr hdr-plain">
+    <div class="hdr-row">
+      <h1 class="wordmark" id="setupTitle">Your house</h1>
+    </div>
+    <p class="tagline">Only tasks your house needs. Nothing it doesn't.</p>
+  </header>
+
+  <main class="wrap">
+    <div id="setupForm"></div>
+
+    <div class="preview">
+      <div class="preview-hd">
+        <span class="preview-n" id="previewCount">0</span>
+        <span class="preview-l">tasks on the schedule</span>
+      </div>
+    </div>
+  </main>
+
+  <div class="dock">
+    <button id="btnSetupCancel" class="btn" type="button" hidden>Cancel</button>
+    <button id="btnSetupSave" class="btn btn-primary" type="button">Build my schedule</button>
+  </div>
+</section>
+
+<!-- ===================================================================
+     SCREEN: Settings
+     =================================================================== -->
+<section id="screen-settings" class="screen" hidden>
+  <header class="hdr hdr-plain">
+    <div class="hdr-row">
+      <h1 class="wordmark">Settings</h1>
+      <span class="version" id="setVersion">v1.0.0</span>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <div class="setting-block">
+      <h2 class="setting-hd">Reminders on your phone</h2>
+      <p class="setting-note">
+        This app is local-only, so it can't ping you while it's closed. The fix:
+        export your schedule to your phone's calendar. Every task becomes a
+        repeating all-day event with an alert, and the calendar does the nagging.
+        Re-export after big schedule changes.
+      </p>
+      <button id="btnIcs" class="btn btn-primary btn-block" type="button">Export schedule to calendar (.ics)</button>
+    </div>
+
+    <div class="setting-block">
+      <h2 class="setting-hd">House profile</h2>
+      <p class="setting-note">
+        Change what the house has &mdash; new tasks are added for anything you turn
+        on. Turning something off pauses its tasks rather than deleting history.
+      </p>
+      <button id="btnEditProfile" class="btn btn-block" type="button">Edit house profile</button>
+    </div>
+
+    <div class="setting-block">
+      <h2 class="setting-hd">Backup</h2>
+      <p class="setting-note">
+        Everything lives on this device only. Nothing is uploaded. Export a
+        backup before anything risky, and to copy the setup to another phone.
+      </p>
+      <div class="backup-actions">
+        <button id="btnExport" class="btn" type="button">Export backup</button>
+        <button id="btnImport" class="btn" type="button">Restore</button>
+      </div>
+    </div>
+
+    <div class="setting-block">
+      <h2 class="setting-hd">History</h2>
+      <div id="logList" class="log-list"></div>
+    </div>
+
+    <div class="setting-block">
+      <h2 class="setting-hd">Updates</h2>
+      <p class="setting-note">
+        The app updates itself when a new version is deployed. Fully close and
+        reopen it and you'll get an "update ready" banner.
+      </p>
+      <button id="btnCheckUpdate" class="btn btn-block" type="button">Check for updates</button>
+      <p class="setting-status" id="updateCheckStatus"></p>
+    </div>
+
+    <div class="setting-block danger">
+      <h2 class="setting-hd">Clear all data</h2>
+      <p class="setting-note">
+        Erases the profile, every task, every thing, and all history on this
+        device. Cannot be undone &mdash; export a backup first.
+      </p>
+      <button id="btnClearData" class="btn btn-danger btn-block" type="button">Erase everything</button>
+    </div>
+  </main>
+</section>
+
+<!-- Bottom tab bar -->
+<nav class="tabs" id="tabs">
+  <button type="button" data-tab="today" aria-pressed="true"><span class="tab-i">&#9634;</span>Today<b class="tab-badge" id="badgeToday" hidden></b></button>
+  <button type="button" data-tab="plan" aria-pressed="false"><span class="tab-i">&#9776;</span>Schedule</button>
+  <button type="button" data-tab="things" aria-pressed="false"><span class="tab-i">&#9881;</span>Things</button>
+  <button type="button" data-tab="settings" aria-pressed="false"><span class="tab-i">&#8943;</span>More</button>
+</nav>
+
+<!-- Update banner -->
+<div id="updateBanner" class="update-banner" hidden>
+  <span class="update-msg">Update available</span>
+  <button id="btnApplyUpdate" type="button" class="update-apply">Tap to load</button>
+  <button id="btnDismissUpdate" type="button" class="update-dismiss" aria-label="Dismiss">&times;</button>
+</div>
+
+<!-- ===================================================================
+     Modals
+     =================================================================== -->
+
+<!-- Task editor -->
+<div id="taskModal" class="modal" hidden>
+  <div class="sheet">
+    <h2 class="sheet-hd" id="taskModalTitle">Task</h2>
+    <div id="taskForm"></div>
+    <div class="sheet-actions">
+      <button id="taskSave" class="btn btn-primary" type="button">Save</button>
+      <button id="taskDelete" class="btn btn-danger" type="button">Delete</button>
+      <button id="taskClose" class="btn" type="button">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Asset editor -->
+<div id="assetModal" class="modal" hidden>
+  <div class="sheet">
+    <h2 class="sheet-hd" id="assetModalTitle">Thing</h2>
+    <div id="assetForm"></div>
+    <div class="sheet-actions">
+      <button id="assetSave" class="btn btn-primary" type="button">Save</button>
+      <button id="assetDelete" class="btn btn-danger" type="button">Delete</button>
+      <button id="assetClose" class="btn" type="button">Close</button>
+    </div>
+  </div>
+</div>
+
+<input id="importInput" type="file" accept="application/json,.json" hidden>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>

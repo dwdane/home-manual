@@ -5,7 +5,7 @@ a maintenance schedule from the house you describe, keeps the model numbers
 and filter sizes for everything you own, and counts down warranties. No
 accounts, no servers, no analytics — everything stays on the device.
 
-Version 1.0.0. Derived from the Home Inspector v1.1.0 PWA architecture.
+Version 1.0.1.
 
 ---
 

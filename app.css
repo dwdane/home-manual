@@ -6,6 +6,12 @@
  * week, green is done/healthy.
  */
 
+/* The browser's own [hidden] rule is weaker than any author rule that sets
+ * `display`, so a component styled `display: flex` stays on screen even with
+ * the attribute set. Everything in this app is shown and hidden via the
+ * `hidden` attribute, so this rule has to win outright. Do not remove it. */
+[hidden] { display: none !important; }
+
 :root {
   --ink:        #101312;   /* ground */
   --ink-2:      #181D1B;   /* raised surface */

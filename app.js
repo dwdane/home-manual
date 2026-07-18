@@ -25,7 +25,7 @@ import {
 
 import { CATS, LIBRARY } from './library.js';
 
-const APP_VERSION = '1.0.0';
+const APP_VERSION = '1.0.1';
 
 // ---------------------------------------------------------------------------
 // State

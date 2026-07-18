@@ -10,7 +10,7 @@
 // the page post SKIP_WAITING, the new worker activates, and the page reloads
 // once onto the new version.
 
-const CACHE_VERSION = 'v1.0.0';
+const CACHE_VERSION = 'v1.0.1';
 const CACHE_NAME = `home-manual-${CACHE_VERSION}`;
 
 // Paths are relative so the app works under a project subpath such as

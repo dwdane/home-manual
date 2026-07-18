@@ -108,6 +108,8 @@ icon-512.png            Splash and store icon
 icon-maskable-512.png   Android adaptive icon
 make-icons.py           Regenerates the icon set (uv run --with pillow make-icons.py)
 test-schedule.mjs       Engine smoke tests (node test-schedule.mjs)
+check-ui.py             Static shell checks: ids, hidden elements, version match
+e2e.py                  Headless browser walkthrough of the real user flows
 README.md               This file
 ```
 
@@ -115,27 +117,64 @@ The last three files are development tools and documentation. They are
 harmless to upload but are not required for the app to run — if you want the
 smallest possible upload, skip them.
 
-## Installing it from an iPhone
+## Installing it
 
-The whole flow works in mobile Safari; no computer needed.
+Live at **https://dwdane.github.io/home-manual/**
 
-1. **Unzip.** In the Files app, long-press the downloaded zip and choose
-   *Uncompress*. You get a `home-manual` folder of loose files.
-2. **Make the repo.** In Safari, go to github.com, tap the **+** (top right)
-   → *New repository*. Name it `home-manual`, set it **Public** (Pages needs
-   public on a free account), and tick *Add a README file* so the repo is
-   initialized. Create it.
-3. **Upload.** In the repo, tap *Add file* → *Upload files* → *choose your
-   files* → *Browse* → navigate to the `home-manual` folder → tap *Select*
-   (top right) → tap each file (or *Select All*) → *Open*. All files land at
-   the repo root. Scroll down, tap **Commit changes**. Overwrite the
-   placeholder README when prompted.
-4. **Turn on Pages.** Repo → *Settings* → *Pages* → under *Branch* choose
-   `main` / `/ (root)` → *Save*. Wait a minute or two; the page will show the
-   live URL, `https://YOURNAME.github.io/home-manual/`.
-5. **Install.** Open that URL **in Safari** (not Chrome — only Safari can add
-   a PWA to the iOS home screen). Tap the Share button → *Add to Home
-   Screen*. Launch it from the icon; it now runs full-screen and offline.
+It is a Progressive Web App, so there is no app store and no download. Open
+the link, add it to your home screen, and it behaves like a native app:
+full-screen, its own icon, works with no signal. Every install is
+independent — the data lives on that device only.
+
+### iPhone and iPad
+
+Must be **Safari**. Chrome and Firefox on iOS cannot install web apps.
+
+1. Open https://dwdane.github.io/home-manual/ in Safari.
+2. Tap the **Share** button (the square with the up arrow).
+3. Scroll down and tap **Add to Home Screen**, then **Add**.
+4. Launch it from the new icon, not from Safari — that is what gives you the
+   full-screen app with no address bar.
+
+### Android
+
+Chrome, Edge, Samsung Internet and Brave all work.
+
+1. Open the link in Chrome.
+2. Either accept the **Install app** prompt that appears at the bottom, or tap
+   the **⋮** menu → **Add to Home screen** / **Install app**.
+3. Confirm **Install**. It lands in the app drawer like any other app.
+
+### Mac
+
+- **Safari:** open the link, then **File → Add to Dock**.
+- **Chrome or Edge:** open the link, click the install icon in the address bar
+  (a monitor with a down arrow), or **⋮ → Cast, save and share → Install page
+  as app**.
+
+### Windows
+
+**Chrome or Edge:** open the link and click the install icon at the right of
+the address bar, or **⋮ → Apps → Install this site as an app**. It gets a
+Start menu entry and its own window.
+
+### Using it without installing
+
+The link works fine in any browser tab. You only lose the home screen icon,
+full-screen chrome, and reliable offline caching. Installing is worth it on
+the phone that will actually be used in the garage or the garden.
+
+### Notes
+
+- **Data does not sync between devices.** Two phones are two separate
+  databases. Move a setup with Settings → *Export backup*, then *Restore* on
+  the other device.
+- **Nothing is uploaded, ever.** No account, no server, no analytics. The
+  house profile, tasks, things and history live in the browser's local
+  database on that one device — which also means clearing site data or
+  deleting the app erases it. Export a backup occasionally.
+- **First load needs a connection** to cache the app. After that it is fully
+  offline.
 
 ## Shipping an update
 
@@ -170,16 +209,41 @@ take a few minutes to reach every edge. If the app says an update is available
 but keeps not installing it, wait five minutes before reaching for Force
 reinstall.
 
-Two things that catch people out:
+### Hosting notes
 
-- **The repo must be public** for GitHub Pages on the free tier. Nothing
-  sensitive lives in these files — all your house data stays in the phone's
-  local database and is never uploaded — but be aware the code is public.
-- **Pages can take a few minutes** on first publish and will 404 until it
-  finishes. That is normal; wait and reload.
+The app is served from GitHub Pages out of the `dwdane/home-manual` repository,
+root of the `main` branch. All files sit flat at the repo root and every path
+in the code is relative, so it works from a project subpath without
+configuration &mdash; and it would work unchanged on Netlify, Cloudflare Pages,
+or any other static host.
 
-Any other static host works the same way (Netlify drop, Cloudflare Pages).
-Paths are all relative, so serving from a subfolder is fine.
+The repository is public, as GitHub Pages requires on the free tier. None of
+the house data is in it: the profile, tasks, things and history exist only in
+the browser database on each device and are never uploaded.
+
+## Testing before you deploy
+
+Run all three from the project folder. They take a few seconds and catch the
+three classes of bug that reach a phone:
+
+```
+node test-schedule.mjs                        # recurrence, seeding, .ics
+python3 check-ui.py                           # ids, hidden elements, versions
+uv run --with playwright python e2e.py        # real browser walkthrough
+```
+
+`e2e.py` needs a browser once: `python -m playwright install chromium`. It
+drives first-run setup, tab navigation, task completion, both modals and the
+update banner in a real headless Chromium, asserting after every step that no
+overlay is covering the interface, and drops screenshots in `screens/`.
+
+That last assertion exists because of a shipped bug worth remembering. The
+browser's built-in `[hidden]` rule is weaker than any author rule that sets
+`display`, so `.modal { display: flex }` on an element marked `hidden`
+rendered a full-screen scrim over the entire app, permanently. Syntax checks
+and static analysis both pass on that code. The stylesheet now opens with a
+global `[hidden] { display: none !important }` and `check-ui.py` fails the
+build if it ever goes missing.
 
 ## Design decisions worth knowing
 

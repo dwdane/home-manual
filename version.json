@@ -1,5 +1,5 @@
 {
-  "version": "1.0.0",
+  "version": "1.0.1",
   "released": "2026-07-18",
-  "notes": "Initial release."
+  "notes": "Fixes an overlay that covered the app and blocked all interaction."
 }

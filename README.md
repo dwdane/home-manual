@@ -5,7 +5,7 @@ a maintenance schedule from the house you describe, keeps the model numbers
 and filter sizes for everything you own, and counts down warranties. No
 accounts, no servers, no analytics — everything stays on the device.
 
-Version 1.0.0. Derived from the Home Inspector v1.1.0 PWA architecture.
+Version 1.0.0.
 
 ---
 
@@ -18,7 +18,7 @@ never sees crawlspace checks; no dog means no vaccine reminders.
 
 **Today** shows what's due, bucketed into Overdue / This week / This month /
 Coming up. Mark done (which logs it and computes the next due date) or snooze
-a week. Seasonal tasks are automatically spread across the weeks of their
+a week. Seasonal tasks are automatically spread across the weeks of their no
 month at seed time, so eight spring tasks become two per weekend instead of
 eight on May 1st.
 

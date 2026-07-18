@@ -593,7 +593,20 @@ body {
 }
 
 .setting-note { margin: 0 0 10px; font-size: 13px; color: var(--paper-dim); }
-.setting-status { margin: 8px 0 0; font-family: var(--font-mono); font-size: 12px; color: var(--paper-dim); }
+.setting-status { margin: 8px 0 0; font-family: var(--font-mono); font-size: 12px; color: var(--paper-dim); line-height: 1.5; }
+.setting-status.good { color: var(--ok); }
+.setting-status.warn { color: var(--soon); }
+.setting-status:empty { margin: 0; }
+
+.btn-quiet {
+  margin-top: 10px;
+  background: transparent;
+  border-color: var(--line);
+  color: var(--paper-dim);
+}
+.btn-quiet:active { color: var(--paper); }
+
+.setting-note-tight { margin-top: 6px; font-size: 12px; }
 
 .backup-actions { display: flex; gap: 8px; }
 .backup-actions .btn { flex: 1; }

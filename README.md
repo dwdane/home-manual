@@ -5,7 +5,7 @@ a maintenance schedule from the house you describe, keeps the model numbers
 and filter sizes for everything you own, and counts down warranties. No
 accounts, no servers, no analytics — everything stays on the device.
 
-Version 1.0.0.
+Version 1.0.0. Derived from the Home Inspector v1.1.0 PWA architecture.
 
 ---
 
@@ -18,7 +18,7 @@ never sees crawlspace checks; no dog means no vaccine reminders.
 
 **Today** shows what's due, bucketed into Overdue / This week / This month /
 Coming up. Mark done (which logs it and computes the next due date) or snooze
-a week. Seasonal tasks are automatically spread across the weeks of their no
+a week. Seasonal tasks are automatically spread across the weeks of their
 month at seed time, so eight spring tasks become two per weekend instead of
 eight on May 1st.
 
@@ -102,6 +102,7 @@ app.js                  UI, wiring, update flow, boot
 library.js              Task content: the library and category definitions
 schedule.js             Profile -> tasks, recurrence math, spreading, .ics
 store.js                IndexedDB persistence and backup/restore
+version.json            Published version number the app polls to detect updates
 icon-192.png            Home screen icon
 icon-512.png            Splash and store icon
 icon-maskable-512.png   Android adaptive icon
@@ -136,12 +137,38 @@ The whole flow works in mobile Safari; no computer needed.
    a PWA to the iOS home screen). Tap the Share button → *Add to Home
    Screen*. Launch it from the icon; it now runs full-screen and offline.
 
-Updating later: upload the changed files to the repo the same way, tapping
-*Add file* → *Upload files* and letting them overwrite. Bump `CACHE_VERSION`
-in `sw.js` and `APP_VERSION` in `app.js` together, or the phone will keep
-serving the old cached copy. After deploying, fully close and reopen the app
-twice — the first launch downloads the update and shows the banner, the
-second runs it.
+## Shipping an update
+
+Three files must agree, or the phone will keep running the old build:
+
+1. `version.json` &mdash; bump `version` (and optionally `released` / `notes`).
+2. `sw.js` &mdash; bump `CACHE_VERSION`.
+3. `app.js` &mdash; bump `APP_VERSION` to the same string as `version.json`.
+
+Then upload the changed files to the repo (*Add file* &rarr; *Upload files*,
+overwriting). Within a minute or two of publishing, opening the app will
+detect the new version, download it in the background, and show a "Version
+x.y.z is ready" banner. Tapping it swaps to the new build immediately.
+
+How the detection works, and why it is belt-and-braces:
+
+- `version.json` is fetched with `cache: 'no-store'` on every launch and every
+  time the app returns to the foreground. It is the authority on what is
+  published, and it is deliberately excluded from the offline cache-first
+  strategy in the service worker.
+- The service worker registration uses `updateViaCache: 'none'`, so `sw.js`
+  itself is never served from the HTTP cache &mdash; the single most common
+  reason a PWA never notices a deployment.
+- If the version manifest says a new build exists but the worker has not
+  picked it up (a stale CDN edge, a wedged worker), Settings says so plainly
+  and offers **Force reinstall**, which deletes every cache, unregisters the
+  worker, and reloads from the network. House data lives in IndexedDB and is
+  untouched by this.
+
+Note that GitHub Pages puts a CDN in front of the files, so a fresh deploy can
+take a few minutes to reach every edge. If the app says an update is available
+but keeps not installing it, wait five minutes before reaching for Force
+reinstall.
 
 Two things that catch people out:
 

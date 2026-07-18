@@ -156,11 +156,18 @@
     <div class="setting-block">
       <h2 class="setting-hd">Updates</h2>
       <p class="setting-note">
-        The app updates itself when a new version is deployed. Fully close and
-        reopen it and you'll get an "update ready" banner.
+        The app checks for a new version every time you open it and offers a
+        banner when one is ready. You can also check right now.
       </p>
       <button id="btnCheckUpdate" class="btn btn-block" type="button">Check for updates</button>
       <p class="setting-status" id="updateCheckStatus"></p>
+      <button id="btnForceReinstall" class="btn btn-block btn-quiet" type="button">
+        Force reinstall
+      </button>
+      <p class="setting-note setting-note-tight">
+        Force reinstall re-downloads the app files if an update ever gets
+        stuck. Your profile, tasks, things and history are not affected.
+      </p>
     </div>
 
     <div class="setting-block danger">
@@ -184,8 +191,8 @@
 
 <!-- Update banner -->
 <div id="updateBanner" class="update-banner" hidden>
-  <span class="update-msg">Update available</span>
-  <button id="btnApplyUpdate" type="button" class="update-apply">Tap to load</button>
+  <span class="update-msg" id="updateMsg">Update available</span>
+  <button id="btnApplyUpdate" type="button" class="update-apply">Load it now</button>
   <button id="btnDismissUpdate" type="button" class="update-dismiss" aria-label="Dismiss">&times;</button>
 </div>
 

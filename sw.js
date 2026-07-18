@@ -24,6 +24,7 @@ const PRECACHE = [
   './schedule.js',
   './library.js',
   './manifest.webmanifest',
+  './version.json',
   './icon-192.png',
   './icon-512.png',
 ];
@@ -62,6 +63,25 @@ self.addEventListener('fetch', (event) => {
   // Only handle same-origin requests; fonts and external links go straight
   // to the network.
   if (url.origin !== self.location.origin) return;
+
+  // version.json is the update signal, so it must never be answered from the
+  // cache - a cache-first response here would make the app permanently
+  // believe it is up to date. Network first, cached copy only as an offline
+  // fallback.
+  if (url.pathname.endsWith('/version.json')) {
+    event.respondWith(
+      fetch(request, { cache: 'no-store' })
+        .then((response) => {
+          if (response.ok) {
+            const copy = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put('./version.json', copy));
+          }
+          return response;
+        })
+        .catch(() => caches.match('./version.json', { ignoreSearch: true })),
+    );
+    return;
+  }
 
   event.respondWith(
     caches.match(request, { ignoreSearch: true }).then(

@@ -845,29 +845,175 @@ $('btnClearData').addEventListener('click', async () => {
 // Service worker & update flow
 // ---------------------------------------------------------------------------
 
-function showUpdateBanner(worker) {
+/*
+ * Update strategy
+ * ---------------
+ * Three independent signals, because relying on any one of them alone is how
+ * a PWA ends up silently frozen on an old build:
+ *
+ *   1. version.json - a tiny file deployed alongside the app, fetched with
+ *      cache: 'no-store'. It is the authority on what version is *published*.
+ *      Comparing it to APP_VERSION tells us an update exists even if the
+ *      service worker has not noticed yet.
+ *   2. registration.update() - asks the browser to re-fetch sw.js. Registered
+ *      with updateViaCache: 'none' so sw.js itself is never served from the
+ *      HTTP cache.
+ *   3. Force reinstall - unregisters the worker and deletes every cache, then
+ *      reloads. The escape hatch for a wedged CDN or a stuck worker. It does
+ *      not touch IndexedDB, so no house data is lost.
+ *
+ * Checks run on boot and whenever the app returns to the foreground
+ * (throttled), so a phone that keeps the PWA suspended for weeks still
+ * notices new releases without a manual reinstall.
+ */
+
+let swReg = null;
+let publishedVersion = null;
+let lastCheckAt = 0;
+const CHECK_THROTTLE_MS = 60 * 1000;
+
+/** Reflect an available update in the banner and the settings panel. */
+function showUpdateBanner(worker, versionLabel) {
   waitingWorker = worker;
+  const msg = $('updateMsg');
+  if (msg) {
+    msg.textContent = versionLabel
+      ? `Version ${versionLabel} is ready`
+      : 'Update available';
+  }
   $('updateBanner').hidden = false;
 }
 
 $('btnApplyUpdate').addEventListener('click', () => {
-  if (waitingWorker) waitingWorker.postMessage('SKIP_WAITING');
+  if (waitingWorker) {
+    waitingWorker.postMessage('SKIP_WAITING');
+  } else {
+    // No waiting worker but the banner is up: the safe fallback is a reload,
+    // which lets a freshly activated worker take control.
+    location.reload();
+  }
 });
 
 $('btnDismissUpdate').addEventListener('click', () => { $('updateBanner').hidden = true; });
 
+/** Fetch the deployed version manifest, bypassing every cache layer. */
+async function fetchPublishedVersion() {
+  const res = await fetch(`./version.json?t=${Date.now()}`, { cache: 'no-store' });
+  if (!res.ok) throw new Error(`version.json ${res.status}`);
+  return res.json();
+}
+
+/** Write a line into the Updates block in Settings. */
+function setUpdateStatus(text, tone) {
+  const el = $('updateCheckStatus');
+  if (!el) return;
+  el.textContent = text;
+  el.className = `setting-status${tone ? ' ' + tone : ''}`;
+}
+
+/**
+ * Look for a new release.
+ * @param {{manual?: boolean}} opts manual checks bypass the throttle and
+ *   always report their result in Settings.
+ * @returns {Promise<'current'|'ready'|'stuck'|'offline'>}
+ */
+async function checkForUpdate({ manual = false } = {}) {
+  const now = Date.now();
+  if (!manual && now - lastCheckAt < CHECK_THROTTLE_MS) return 'current';
+  lastCheckAt = now;
+
+  if (manual) setUpdateStatus('Checking\u2026');
+
+  let published = null;
+  try {
+    published = await fetchPublishedVersion();
+    publishedVersion = published.version;
+  } catch {
+    if (manual) setUpdateStatus('Could not reach the server. Check your connection.', 'warn');
+    return 'offline';
+  }
+
+  const isNewer = published.version && published.version !== APP_VERSION;
+
+  // Nudge the browser to re-fetch sw.js regardless, so the new assets start
+  // downloading the moment we learn about them.
+  if (swReg) {
+    try { await swReg.update(); } catch { /* transient network failure */ }
+  }
+
+  if (swReg && swReg.waiting) {
+    showUpdateBanner(swReg.waiting, published.version);
+    setUpdateStatus(
+      `Version ${published.version} downloaded and ready. Tap "Load it now" above.`,
+      'good',
+    );
+    return 'ready';
+  }
+
+  if (isNewer) {
+    // Published version differs but no worker is waiting: either it is still
+    // downloading, or a cached sw.js is being served and the worker will
+    // never see the change on its own.
+    setUpdateStatus(
+      `Version ${published.version} is available (you have ${APP_VERSION}). `
+      + 'It may still be downloading - reopen the app in a minute. '
+      + 'If it keeps saying this, use Force reinstall below.',
+      'warn',
+    );
+    if (manual) $('btnForceReinstall').hidden = false;
+    return 'stuck';
+  }
+
+  if (manual) {
+    setUpdateStatus(`You're on the latest version (${APP_VERSION}).`, 'good');
+  }
+  return 'current';
+}
+
+/**
+ * Nuclear option: drop every cache and unregister the worker, then reload
+ * from the network. House data lives in IndexedDB and is not touched.
+ */
+async function forceReinstall() {
+  const ok = confirm(
+    'Reinstall the app from scratch?\n\n'
+    + 'This re-downloads the app files. Your house profile, tasks, things and '
+    + 'history are NOT affected.',
+  );
+  if (!ok) return;
+
+  setUpdateStatus('Reinstalling\u2026');
+  try {
+    if ('caches' in window) {
+      const keys = await caches.keys();
+      await Promise.all(keys.map((k) => caches.delete(k)));
+    }
+    const regs = await navigator.serviceWorker.getRegistrations();
+    await Promise.all(regs.map((r) => r.unregister()));
+  } catch { /* proceed to reload regardless */ }
+  // Cache-busted reload so the shell itself comes from the network.
+  location.replace(`${location.pathname}?fresh=${Date.now()}`);
+}
+
 async function registerSw() {
   if (!('serviceWorker' in navigator)) return;
   try {
-    const reg = await navigator.serviceWorker.register('./sw.js');
-    if (reg.waiting) showUpdateBanner(reg.waiting);
-    reg.addEventListener('updatefound', () => {
-      const nw = reg.installing;
+    // updateViaCache: 'none' stops the browser serving sw.js from the HTTP
+    // cache, which is the usual reason an update is never detected.
+    swReg = await navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' });
+
+    if (swReg.waiting) showUpdateBanner(swReg.waiting, publishedVersion);
+
+    swReg.addEventListener('updatefound', () => {
+      const nw = swReg.installing;
       if (!nw) return;
       nw.addEventListener('statechange', () => {
-        if (nw.state === 'installed' && navigator.serviceWorker.controller) showUpdateBanner(nw);
+        if (nw.state === 'installed' && navigator.serviceWorker.controller) {
+          showUpdateBanner(nw, publishedVersion);
+        }
       });
     });
+
     let reloading = false;
     navigator.serviceWorker.addEventListener('controllerchange', () => {
       if (reloading) return;
@@ -877,19 +1023,15 @@ async function registerSw() {
   } catch { /* offline first load, or SW unsupported */ }
 }
 
-$('btnCheckUpdate').addEventListener('click', async () => {
-  const status = $('updateCheckStatus');
-  status.textContent = 'Checking\u2026';
-  try {
-    const reg = await navigator.serviceWorker.getRegistration();
-    if (!reg) { status.textContent = 'Not installed as an app yet.'; return; }
-    await reg.update();
-    status.textContent = reg.waiting ? 'Update ready - see the banner.' : 'You are on the latest version.';
-    if (reg.waiting) showUpdateBanner(reg.waiting);
-  } catch {
-    status.textContent = 'Could not check (offline?).';
-  }
+$('btnCheckUpdate').addEventListener('click', () => checkForUpdate({ manual: true }));
+$('btnForceReinstall').addEventListener('click', forceReinstall);
+
+// Re-check whenever the app comes back to the foreground. An installed PWA
+// can sit suspended for weeks without ever re-running boot().
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') checkForUpdate();
 });
+window.addEventListener('focus', () => checkForUpdate());
 
 // ---------------------------------------------------------------------------
 // Boot
@@ -917,7 +1059,9 @@ async function boot() {
     show('screen-today');
   }
 
-  registerSw();
+  await registerSw();
+  // Non-blocking: the UI is already usable while this resolves.
+  checkForUpdate();
 }
 
 boot();

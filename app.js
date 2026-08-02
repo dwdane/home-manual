@@ -29,6 +29,8 @@ import {
 import {
   CATS, catLabel, LIBRARY, HOUSE_SECTIONS, VEHICLE_FIELDS, PET_FIELDS,
   SPEC_SUGGESTIONS, INSPECTION_BANK, WARRANTY_MILESTONES,
+  EQUIPMENT_CATALOG, RARE_EQUIPMENT, suggestRooms, CONTACT_KINDS,
+  SERVICE_SUGGESTIONS,
 } from './library.js';
 import { processImage, urlFor } from './photos.js';
 import {
@@ -42,6 +44,22 @@ import {
 
 /** @param {string} id */
 const $ = (id) => document.getElementById(id);
+
+/**
+ * On-screen error reporter. A home-screen web app has no visible console,
+ * so a thrown exception otherwise looks like a dead button. Any uncaught
+ * error or rejected promise surfaces here; tap to dismiss.
+ */
+function showErr(err) {
+  const el = $('errToast');
+  const msg = err && err.message ? err.message : String(err || 'Unknown error');
+  el.textContent = `Something went wrong - tell the developer: ${msg}`;
+  el.hidden = false;
+  clearTimeout(showErr._t);
+  showErr._t = setTimeout(() => { el.hidden = true; }, 12000);
+}
+window.addEventListener('error', (e) => showErr(e.error || e.message));
+window.addEventListener('unhandledrejection', (e) => showErr(e.reason || 'A background save failed'));
 
 /** Escape a string for safe insertion into HTML. */
 function esc(str) {
@@ -95,6 +113,7 @@ for (const level of [0, 1]) {
 }
 
 $('lightboxImg').addEventListener('click', () => { $('lightboxImg').hidden = true; });
+$('errToast').addEventListener('click', () => { $('errToast').hidden = true; });
 
 // ---------------------------------------------------------------------------
 // 2. Navigation
@@ -102,7 +121,8 @@ $('lightboxImg').addEventListener('click', () => { $('lightboxImg').hidden = tru
 
 /** In-memory caches, loaded at boot and kept current by every mutation. */
 const db = {
-  subjects: [], rooms: [], tasks: [], assets: [], log: [], photos: [], inspections: [],
+  subjects: [], rooms: [], tasks: [], assets: [], log: [], photos: [],
+  inspections: [], lists: [], contacts: [],
 };
 let activeSubjectId = null;
 
@@ -162,9 +182,16 @@ function subjectById(id) {
   return db.subjects.find((s) => s.id === id) || null;
 }
 
-async function setActiveSubject(id) {
+/**
+ * Switch the active subject. Synchronous on purpose: the in-memory state and
+ * every visible chip update immediately, and the meta write happens in the
+ * background. Gating renders behind the database write is what made subject
+ * switching feel dead on iOS.
+ */
+function setActiveSubject(id) {
   activeSubjectId = id;
-  await setMeta('activeSubjectId', id);
+  syncChips();
+  setMeta('activeSubjectId', id).catch(showErr);
 }
 
 function tasksOf(subjectId) {
@@ -192,7 +219,7 @@ function subjectChipLabel(s) {
 
 function syncChips() {
   const s = activeSubject();
-  for (const id of ['taskSubjectChip', 'manualSubjectChip', 'photoSubjectChip']) {
+  for (const id of ['manualSubjectChip', 'photoSubjectChip']) {
     $(id).innerHTML = subjectChipLabel(s);
   }
 }
@@ -210,10 +237,9 @@ function openSwitcher() {
       <button class="btn btn-block btn-quiet" id="swAdd" type="button">Add another house, vehicle or pet</button>`,
     onMount(root) {
       root.querySelectorAll('[data-pick]').forEach((b) => {
-        b.addEventListener('click', async () => {
-          await setActiveSubject(b.dataset.pick);
+        b.addEventListener('click', () => {
+          setActiveSubject(b.dataset.pick);
           closeSheet(0);
-          syncChips();
           refresh();
         });
       });
@@ -225,7 +251,7 @@ function openSwitcher() {
   });
 }
 
-for (const id of ['taskSubjectChip', 'manualSubjectChip', 'photoSubjectChip']) {
+for (const id of ['manualSubjectChip', 'photoSubjectChip']) {
   $(id).addEventListener('click', openSwitcher);
 }
 
@@ -266,7 +292,7 @@ async function deleteSubject(subject) {
     db[key] = db[key].filter((r) => r.subjectId !== subject.id && r.id !== subject.id);
   }
   if (activeSubjectId === subject.id) {
-    await setActiveSubject(db.subjects[0] ? db.subjects[0].id : null);
+    setActiveSubject(db.subjects[0] ? db.subjects[0].id : null);
   }
   if (!db.subjects.length) {
     openHouseWizard(null, { firstRun: true });
@@ -304,10 +330,12 @@ function renderHome() {
     </button>`;
 
   $('subjectRail').querySelectorAll('[data-sub]').forEach((b) => {
-    b.addEventListener('click', async () => {
-      await setActiveSubject(b.dataset.sub);
-      syncChips();
-      renderHome();
+    b.addEventListener('click', () => {
+      // Tap = open: select the subject, expand only it, land on its tasks.
+      setActiveSubject(b.dataset.sub);
+      expandOnly(b.dataset.sub);
+      renderTasks();
+      show('screen-tasks');
     });
   });
   $('railAdd').addEventListener('click', openAddSubject);
@@ -340,18 +368,139 @@ function renderHome() {
     <p class="empty-sub">Overdue and upcoming tasks show up here.</p></div>`;
 
   wireTaskRows($('attnList'));
+  renderLists();
+}
+
+/** The Lists section on Home: projects, shopping, whatever needs a list. */
+function renderLists() {
+  const lists = [...db.lists].sort((a, b) => (b.created || '').localeCompare(a.created || ''));
+  $('listsCount').textContent = lists.length || '';
+  $('homeLists').innerHTML = lists.map((l) => {
+    const done = l.items.filter((i) => i.done).length;
+    return `
+      <div class="card card-tap" data-list="${l.id}">
+        <h3 class="card-hd">${esc(l.name)}
+          <span class="tag ${done === l.items.length && l.items.length ? 'w-ok' : 'w-soon'}">${done}/${l.items.length}</span></h3>
+        <p class="card-sub">${l.kind === 'shopping' ? 'Shopping list' : 'Project list'}</p>
+      </div>`;
+  }).join('') || '<p class="setting-note">A weekend project, a hardware-store run - jot it here.</p>';
+  $('homeLists').querySelectorAll('[data-list]').forEach((el) => {
+    el.addEventListener('click', () => openListSheet(db.lists.find((l) => l.id === el.dataset.list)));
+  });
+}
+
+$('btnNewList').addEventListener('click', () => {
+  openSheet(0, {
+    title: 'New list',
+    body: `
+      <label class="field"><span class="field-label">Name it</span>
+        <input id="nlName" type="text" placeholder="Deck project, Hardware run, Costco…"></label>
+      <div class="seg" id="nlKind">
+        <button type="button" class="seg-opt on" data-v="project">Project</button>
+        <button type="button" class="seg-opt" data-v="shopping">Shopping</button>
+      </div>
+      <div class="sheet-actions"><button class="btn btn-primary" id="nlSave" type="button">Create</button></div>`,
+    onMount(root) {
+      let kind = 'project';
+      root.querySelectorAll('#nlKind .seg-opt').forEach((b) => {
+        b.addEventListener('click', () => {
+          kind = b.dataset.v;
+          root.querySelectorAll('#nlKind .seg-opt').forEach((x) => x.classList.toggle('on', x === b));
+        });
+      });
+      root.querySelector('#nlSave').addEventListener('click', async () => {
+        const list = {
+          id: newId('list'), name: root.querySelector('#nlName').value.trim() || 'List',
+          kind, items: [], created: new Date().toISOString(),
+        };
+        db.lists.push(list);
+        closeSheet(0);
+        openListSheet(list);
+        await put('lists', list);
+      });
+    },
+    onClose: () => renderLists(),
+  });
+});
+
+/** One list: check items off, add, remove, rename, delete. */
+function openListSheet(list) {
+  const itemRow = (it) => `
+    <div class="list-row ${it.done ? 'done' : ''}" data-item="${it.id}">
+      <button class="list-check" type="button" data-toggle="${it.id}">✓</button>
+      <span class="list-text">${esc(it.text)}</span>
+      <button class="list-x" type="button" data-del="${it.id}" aria-label="Remove">×</button>
+    </div>`;
+
+  openSheet(0, {
+    title: list.name,
+    body: `
+      <div id="liRows">${list.items.map(itemRow).join('') || '<p class="setting-note">Nothing on it yet.</p>'}</div>
+      <div class="field-pair" style="margin-top:12px">
+        <label class="field" style="flex:2.5"><span class="field-label">Add to the list</span>
+          <input id="liNew" type="text" placeholder="2x4s, caulk, pick up mulch…"></label>
+        <label class="field"><span class="field-label">&nbsp;</span>
+          <button class="btn" id="liAdd" type="button" style="width:100%">Add</button></label>
+      </div>
+      <label class="field"><span class="field-label">List name</span>
+        <input id="liName" type="text" value="${esc(list.name)}"></label>
+      <div class="sheet-actions">
+        <button class="btn btn-primary" id="liSave" type="button">Done</button>
+        <button class="btn btn-danger" id="liDelete" type="button">Delete list</button>
+      </div>`,
+    onMount(root) {
+      const persist = () => put('lists', list).catch(showErr);
+      const rerender = () => openListSheet(list);
+      root.querySelectorAll('[data-toggle]').forEach((b) => {
+        b.addEventListener('click', () => {
+          const it = list.items.find((x) => x.id === b.dataset.toggle);
+          it.done = !it.done;
+          persist();
+          rerender();
+        });
+      });
+      root.querySelectorAll('[data-del]').forEach((b) => {
+        b.addEventListener('click', () => {
+          list.items = list.items.filter((x) => x.id !== b.dataset.del);
+          persist();
+          rerender();
+        });
+      });
+      const add = () => {
+        const inp = root.querySelector('#liNew');
+        const text = inp.value.trim();
+        if (!text) return;
+        list.items.push({ id: newId('li'), text, done: false });
+        persist();
+        rerender();
+      };
+      root.querySelector('#liAdd').addEventListener('click', add);
+      root.querySelector('#liNew').addEventListener('keydown', (e) => { if (e.key === 'Enter') add(); });
+      root.querySelector('#liSave').addEventListener('click', () => {
+        list.name = root.querySelector('#liName').value.trim() || list.name;
+        persist();
+        closeSheet(0);
+        renderLists();
+      });
+      root.querySelector('#liDelete').addEventListener('click', async () => {
+        if (!confirm(`Delete "${list.name}"?`)) return;
+        await remove('lists', list.id);
+        db.lists = db.lists.filter((l) => l.id !== list.id);
+        closeSheet(0);
+        renderLists();
+      });
+    },
+    onClose: () => renderLists(),
+  });
 }
 
 /** Shared wiring for any container holding task rows. */
 function wireTaskRows(root) {
   root.querySelectorAll('[data-open-task]').forEach((el) => {
-    el.addEventListener('click', async () => {
+    el.addEventListener('click', () => {
       const task = db.tasks.find((t) => t.id === el.dataset.openTask);
       if (!task) return;
-      if (task.subjectId !== activeSubjectId) {
-        await setActiveSubject(task.subjectId);
-        syncChips();
-      }
+      if (task.subjectId !== activeSubjectId) setActiveSubject(task.subjectId);
       openTaskSheet(task);
     });
   });
@@ -371,20 +520,31 @@ $('btnQuickTask').addEventListener('click', () => openAddTaskChooser());
 // ---------------------------------------------------------------------------
 
 let collapsedCats = {};
+let collapsedSubjects = null; // Set of subject ids folded shut on the Tasks tab
 
 async function loadCollapsed() {
   collapsedCats = (await getMeta('collapsedCats')) || {};
+  const savedSubjects = await getMeta('collapsedSubjects');
+  collapsedSubjects = savedSubjects
+    ? new Set(savedSubjects)
+    : new Set(db.subjects.filter((s) => s.id !== activeSubjectId).map((s) => s.id));
+}
+
+/** Expand exactly one subject section; fold the rest. */
+function expandOnly(subjectId) {
+  collapsedSubjects = new Set(db.subjects.filter((s) => s.id !== subjectId).map((s) => s.id));
+  setMeta('collapsedSubjects', [...collapsedSubjects]).catch(showErr);
 }
 
 function isCollapsed(subjectId, cat) {
   return Boolean((collapsedCats[subjectId] || []).includes(cat));
 }
 
-async function toggleCollapsed(subjectId, cat) {
+function toggleCollapsed(subjectId, cat) {
   const set = new Set(collapsedCats[subjectId] || []);
   if (set.has(cat)) set.delete(cat); else set.add(cat);
   collapsedCats[subjectId] = [...set];
-  await setMeta('collapsedCats', collapsedCats);
+  setMeta('collapsedCats', collapsedCats).catch(showErr);
 }
 
 /** Sort tasks within a category: overdue, scheduled, unscheduled, paused. */
@@ -425,23 +585,17 @@ function taskRowHtml(t) {
     </div>`;
 }
 
-function renderTasks() {
-  syncChips();
-  const s = activeSubject();
-  if (!s) { $('taskGroups').innerHTML = ''; return; }
-
-  const today = todayIso();
-  const mine = tasksOf(s.id);
+/** Category groups for one subject's tasks. */
+function subjectTasksHtml(s, mine, today) {
   const cats = CATS[s.kind] || CATS.house;
-
-  const html = cats.map((c) => {
+  const groups = cats.map((c) => {
     const group = mine.filter((t) => (t.cat || 'other') === c.id).sort(taskSort);
     if (!group.length) return '';
     const anyOver = group.some((t) => !t.paused && t.nextDue && t.nextDue < today);
     const open = !isCollapsed(s.id, c.id);
     return `
       <div class="cat-group">
-        <button class="cat-hd ${open ? 'open' : ''}" data-cat="${c.id}" type="button">
+        <button class="cat-hd ${open ? 'open' : ''}" data-cat="${s.id}:${c.id}" type="button">
           <span class="chev">\u203A</span>${esc(c.label)}
           ${anyOver ? '<span class="dot-over"></span>' : ''}
           <span class="count">${group.length}</span>
@@ -449,16 +603,57 @@ function renderTasks() {
         <div ${open ? '' : 'hidden'}>${group.map(taskRowHtml).join('')}</div>
       </div>`;
   }).join('');
+  return (groups || '<p class="setting-note" style="margin-top:10px">No tasks yet.</p>')
+    + `<button class="add-inline" data-addto="${s.id}" type="button">\u002B Add a task to ${esc(s.name)}</button>`;
+}
 
-  $('taskGroups').innerHTML = html || `
-    <div class="empty"><p>No tasks yet for ${esc(s.name)}.</p>
-    <p class="empty-sub">Tap + to write your own or browse the task ideas.</p></div>`;
+/**
+ * The Tasks tab: every subject as its own collapsible section, category
+ * groups inside. No either/or switching - fold and unfold instead.
+ */
+function renderTasks() {
+  if (!db.subjects.length) { $('taskGroups').innerHTML = ''; return; }
+  if (!collapsedSubjects) {
+    collapsedSubjects = new Set(db.subjects.filter((s) => s.id !== activeSubjectId).map((s) => s.id));
+  }
+  const today = todayIso();
 
-  $('taskGroups').querySelectorAll('.cat-hd').forEach((b) => {
-    b.addEventListener('click', async () => {
-      await toggleCollapsed(s.id, b.dataset.cat);
+  $('taskGroups').innerHTML = db.subjects.map((s) => {
+    const mine = tasksOf(s.id);
+    const over = overdueCount(s.id);
+    const open = !collapsedSubjects.has(s.id);
+    return `
+      <button class="subject-hd ${open ? 'open' : ''} ${s.id === activeSubjectId ? 'on' : ''}" data-subhd="${s.id}" type="button">
+        <span class="chev">\u203A</span>
+        <span>${KINDS[s.kind].glyph} ${esc(s.name)}</span>
+        ${over ? `<span class="s-over">${over}</span>` : ''}
+        <span class="s-count">${mine.length} tasks</span>
+      </button>
+      <div class="subject-body" ${open ? '' : 'hidden'}>${open ? subjectTasksHtml(s, mine, today) : ''}</div>`;
+  }).join('');
+
+  $('taskGroups').querySelectorAll('[data-subhd]').forEach((b) => {
+    b.addEventListener('click', () => {
+      const id = b.dataset.subhd;
+      if (collapsedSubjects.has(id)) {
+        collapsedSubjects.delete(id);
+        setActiveSubject(id); // opening a section makes it the active subject
+      } else {
+        collapsedSubjects.add(id);
+      }
+      setMeta('collapsedSubjects', [...collapsedSubjects]).catch(showErr);
       renderTasks();
     });
+  });
+  $('taskGroups').querySelectorAll('.cat-hd').forEach((b) => {
+    b.addEventListener('click', () => {
+      const [sid, cat] = b.dataset.cat.split(':');
+      toggleCollapsed(sid, cat);
+      renderTasks();
+    });
+  });
+  $('taskGroups').querySelectorAll('[data-addto]').forEach((b) => {
+    b.addEventListener('click', () => openAddTaskChooser(subjectById(b.dataset.addto)));
   });
   wireTaskRows($('taskGroups'));
   updateBadge();
@@ -467,8 +662,8 @@ function renderTasks() {
 $('btnAddTask').addEventListener('click', () => openAddTaskChooser());
 
 /** "Write my own" or "Browse ideas". */
-function openAddTaskChooser() {
-  const s = activeSubject();
+function openAddTaskChooser(subject) {
+  const s = subject || activeSubject();
   if (!s) return;
   openSheet(0, {
     title: `Add a task \u00B7 ${esc(s.name)}`,
@@ -482,15 +677,15 @@ function openAddTaskChooser() {
       });
       root.querySelector('#atBrowse').addEventListener('click', () => {
         closeSheet(0);
-        openIdeaBrowser();
+        openIdeaBrowser(s);
       });
     },
   });
 }
 
 /** The library browser: every idea for this kind, suggested ones tagged. */
-function openIdeaBrowser() {
-  const s = activeSubject();
+function openIdeaBrowser(subject) {
+  const s = subject || activeSubject();
   const entries = LIBRARY[s.kind] || [];
   const existingKeys = new Set(tasksOf(s.id).map((t) => t.key).filter(Boolean));
   const cats = CATS[s.kind] || [];
@@ -565,9 +760,28 @@ function openIdeaBrowser() {
 }
 
 /** The task detail sheet: why, how, photos, history, actions. */
+/**
+ * Resolve the equipment a task belongs to: an explicit link first, then a
+ * fuzzy match on the library's assetHint against the subject's equipment
+ * (exact name, then containment) so auto-created equipment shows up in
+ * seeded tasks without any manual linking.
+ */
+function assetForTask(task) {
+  const explicit = db.assets.find((a) => a.id === task.assetId);
+  if (explicit || !task.assetHint) return explicit || null;
+  const mine = db.assets.filter((a) => a.subjectId === task.subjectId);
+  const hint = task.assetHint.toLowerCase();
+  return mine.find((a) => a.name.toLowerCase() === hint)
+    || mine.find((a) => {
+      const n = a.name.toLowerCase();
+      return n.includes(hint) || hint.includes(n);
+    })
+    || null;
+}
+
 function openTaskSheet(task) {
   const s = subjectById(task.subjectId);
-  const asset = db.assets.find((a) => a.id === task.assetId);
+  const asset = assetForTask(task);
   const history = db.log.filter((l) => l.taskId === task.id)
     .sort((a, b) => b.date.localeCompare(a.date)).slice(0, 5);
   const photos = db.photos.filter((p) => task.photoIds.includes(p.id));
@@ -584,7 +798,14 @@ function openTaskSheet(task) {
       <p class="sheet-meta">${esc(fmtCadence(task))} \u00B7 ${esc(dueLine)}</p>
       ${task.lastDone ? `<p class="sheet-meta">Last done ${esc(fmtDate(task.lastDone))}</p>` : ''}
       ${task.why ? `<p style="font-size:14px; margin:10px 0 0">${esc(task.why)}</p>` : ''}
-      ${asset ? `<div class="chip-row"><button class="chip brass" id="tsAsset" type="button">${esc(asset.name)}</button></div>`
+      ${asset ? `
+        <div class="sheet-sec">
+          <h3 class="sheet-sec-hd">What to buy / its equipment</h3>
+          <div class="chip-row"><button class="chip brass" id="tsAsset" type="button">${esc(asset.name)}${asset.model ? ` \u00B7 ${esc([asset.brand, asset.model].filter(Boolean).join(' '))}` : ''}</button></div>
+          ${(asset.specs || []).length
+    ? (asset.specs || []).map(specRowHtml).join('')
+    : '<p class="setting-note" style="margin:6px 0 0">Tap the chip and add its model # and sizes - they\u2019ll show right here next time.</p>'}
+        </div>`
     : (task.assetHint ? `<p class="sheet-meta">Goes with: ${esc(task.assetHint)}</p>` : '')}
 
       ${task.how || task.note || photos.length ? `
@@ -845,6 +1066,7 @@ function openTaskEditor(task, { isNew, level = 0 }) {
 // ---------------------------------------------------------------------------
 
 let manualQuery = '';
+let setupHintDismissed = {};
 
 $('manualSearch').addEventListener('input', (e) => {
   manualQuery = e.target.value.trim().toLowerCase();
@@ -882,7 +1104,24 @@ function renderHouseManual(s) {
     .sort((a, b) => a.name.localeCompare(b.name));
   const facts = (s.specs || []).filter((x) => hit(`${x.k} ${x.v}`));
 
+  const eqTotal = db.assets.filter((a) => a.subjectId === s.id).length;
+  const eqDone = db.assets.filter((a) => a.subjectId === s.id && a.model).length;
+  const rmTotal = db.rooms.filter((r) => r.subjectId === s.id).length;
+  const rmDone = db.rooms.filter((r) => r.subjectId === s.id && r.dims).length;
+  const setupPending = eqTotal && (eqDone < eqTotal || rmDone < rmTotal)
+    && !(setupHintDismissed[s.id]);
+
+  const papers = db.photos.filter((p) => p.subjectId === s.id && p.docType && p.docType !== 'photo')
+    .sort((a, b) => (b.taken || '').localeCompare(a.taken || ''));
+
   $('manualBody').innerHTML = `
+    ${setupPending ? `
+      <div class="progress-card" id="mProgress">
+        <button class="p-x" id="mProgressX" type="button" aria-label="Dismiss">\u00D7</button>
+        <p class="p-hd">Finish setting up ${esc(s.name)}</p>
+        <p class="p-sub">Tap each card and copy what's on the label.
+          Equipment with model #: ${eqDone}/${eqTotal} \u00B7 Rooms with sizes: ${rmDone}/${rmTotal}</p>
+      </div>` : ''}
     <h2 class="section-hd">House facts <span class="count">${(s.specs || []).length}</span></h2>
     <div class="card">
       ${facts.length ? facts.map(specRowHtml).join('') : '<p class="setting-note" style="margin:0">Sq footage, paint colors, filter sizes, shutoff locations\u2026</p>'}
@@ -901,7 +1140,29 @@ function renderHouseManual(s) {
       <div class="card card-tap" data-asset="${a.id}">
         <h3 class="card-hd">${esc(a.name)} ${warrantyTag(a.warrantyEnds)}</h3>
         <p class="card-sub">${esc([a.brand, a.model].filter(Boolean).join(' ')) || 'Tap to add model & specs'}</p>
-      </div>`).join('') || '<p class="setting-note">The stuff with model numbers: furnace, fridge, mower\u2026 Add with +.</p>'}`;
+      </div>`).join('') || '<p class="setting-note">The stuff with model numbers: furnace, fridge, mower\u2026 Add with +.</p>'}
+
+    <h2 class="section-hd">Papers &amp; documents <span class="count">${papers.length}</span></h2>
+    <div class="thumb-row" id="mHousePapers"></div>
+    <p class="setting-note">Warranty scans, receipts, closing documents - snap them with the camera and tag the kind. Insurance and phone numbers live in <button class="chip" id="mContactsLink" type="button">People &amp; policies</button></p>`;
+
+  const px = $('manualBody').querySelector('#mProgressX');
+  if (px) {
+    px.addEventListener('click', () => {
+      setupHintDismissed[s.id] = true;
+      setMeta('setupHintDismissed', setupHintDismissed).catch(showErr);
+      renderManual();
+    });
+  }
+  const papersHolder = $('manualBody').querySelector('#mHousePapers');
+  for (const p of papers.slice(0, 12)) papersHolder.appendChild(photoThumb(p));
+  const paperAdd = document.createElement('button');
+  paperAdd.className = 'thumb-add';
+  paperAdd.type = 'button';
+  paperAdd.textContent = '+';
+  paperAdd.addEventListener('click', () => openCaptureChooser({ subjectId: s.id }));
+  papersHolder.appendChild(paperAdd);
+  $('manualBody').querySelector('#mContactsLink').addEventListener('click', openContactsSheet);
 
   $('mFacts').addEventListener('click', () => openSpecsEditor(s, 'specs', SPEC_SUGGESTIONS.house, () => renderManual()));
   $('manualBody').querySelectorAll('[data-room]').forEach((el) => {
@@ -1240,6 +1501,7 @@ function openAssetSheet(asset, isNew = false) {
     body: `
       <label class="field"><span class="field-label">What is it?</span>
         <input id="aqName" type="text" value="${esc(asset.name)}" placeholder="Water heater"></label>
+      ${isNew ? `<div class="chip-row">${RARE_EQUIPMENT.map((n) => `<button class="chip" data-eqpick="${esc(n)}" type="button">${esc(n)}</button>`).join('')}</div>` : ''}
       <div class="field-pair">
         <label class="field"><span class="field-label">Brand</span>
           <input id="aqBrand" type="text" value="${esc(asset.brand)}"></label>
@@ -1281,6 +1543,9 @@ function openAssetSheet(asset, isNew = false) {
         ${isNew ? '' : '<button class="btn btn-danger" id="aqDelete" type="button">Delete</button>'}
       </div>`,
     onMount(root) {
+      root.querySelectorAll('[data-eqpick]').forEach((b) => {
+        b.addEventListener('click', () => { root.querySelector('#aqName').value = b.dataset.eqpick; });
+      });
       const holder = root.querySelector('#aqPhotos');
       for (const p of photos) holder.appendChild(photoThumb(p));
       const add = document.createElement('button');
@@ -1530,6 +1795,13 @@ function openTagSheet(processed, ctx) {
           if (task) {
             task.photoIds = [...(task.photoIds || []), ...recs.map((r) => r.id)];
             await put('tasks', task);
+          }
+        }
+        if (ctx.contactId) {
+          const contact = db.contacts.find((x) => x.id === ctx.contactId);
+          if (contact) {
+            contact.photoIds = [...(contact.photoIds || []), ...recs.map((r) => r.id)];
+            await put('contacts', contact);
           }
         }
         closeSheet(0);
@@ -1872,8 +2144,210 @@ $('btnCheckUpdate').addEventListener('click', () => checkForUpdate({ manual: tru
 $('btnForceReinstall').addEventListener('click', forceReinstall);
 
 // ---------------------------------------------------------------------------
+// 9b. People & policies
+// ---------------------------------------------------------------------------
+
+/** tel: href from a free-typed phone number. */
+function telHref(phone) {
+  return `tel:${String(phone || '').replace(/[^\d+]/g, '')}`;
+}
+
+/** The contacts book: insurance, service pros, everyone else. */
+function openContactsSheet() {
+  const groups = CONTACT_KINDS.map((k) => {
+    const rows = db.contacts.filter((c) => (c.kind || 'other') === k.id)
+      .sort((a, b) => a.name.localeCompare(b.name));
+    if (!rows.length) return '';
+    return `
+      <div class="sheet-sec">
+        <h3 class="sheet-sec-hd">${esc(k.label)}</h3>
+        ${rows.map((c) => `
+          <div class="contact-row">
+            <div class="contact-main" data-contact="${c.id}">
+              <span class="contact-name">${esc(c.name)}</span>
+              <span class="contact-sub">${esc([c.company, c.policyNo ? `#${c.policyNo}` : ''].filter(Boolean).join(' \u00B7 ')) || esc(c.phone || '')}</span>
+            </div>
+            ${c.phone ? `<a class="call-chip" href="${telHref(c.phone)}">Call</a>` : ''}
+          </div>`).join('')}
+      </div>`;
+  }).join('');
+
+  openSheet(0, {
+    title: 'People & policies',
+    body: `
+      ${groups || '<p class="setting-note">Insurance policies with their numbers, the plumber you trust, the vet, the HVAC company on the sticker\u2026</p>'}
+      <button class="btn btn-primary btn-block" id="ctAdd" type="button">Add someone</button>`,
+    onMount(root) {
+      root.querySelectorAll('[data-contact]').forEach((el) => {
+        el.addEventListener('click', () => {
+          openContactEditor(db.contacts.find((c) => c.id === el.dataset.contact));
+        });
+      });
+      root.querySelector('#ctAdd').addEventListener('click', () => openContactEditor(null));
+    },
+  });
+}
+
+/** Create/edit one contact or policy, with attached document photos. */
+function openContactEditor(existing) {
+  const c = existing || {
+    id: newId('ct'), kind: 'service', name: '', company: '', phone: '',
+    policyNo: '', note: '', photoIds: [],
+  };
+  const photos = db.photos.filter((p) => (c.photoIds || []).includes(p.id));
+
+  openSheet(1, {
+    title: existing ? c.name || 'Edit' : 'Add someone',
+    body: `
+      <div class="seg" id="ctKind">
+        ${CONTACT_KINDS.map((k) => `<button type="button" class="seg-opt ${k.id === c.kind ? 'on' : ''}" data-v="${k.id}">${esc(k.label)}</button>`).join('')}
+      </div>
+      ${existing ? '' : `<div class="chip-row">${SERVICE_SUGGESTIONS.map((sg) => `<button class="chip" data-ctpick="${esc(sg)}" type="button">${esc(sg)}</button>`).join('')}</div>`}
+      <label class="field" style="margin-top:10px"><span class="field-label">Who / what</span>
+        <input id="ctName" type="text" value="${esc(c.name)}" placeholder="Plumber \u00B7 Home insurance \u00B7 Dr. Ruiz"></label>
+      <div class="field-pair">
+        <label class="field"><span class="field-label">Company</span>
+          <input id="ctCompany" type="text" value="${esc(c.company)}"></label>
+        <label class="field"><span class="field-label">Phone</span>
+          <input id="ctPhone" type="tel" value="${esc(c.phone)}"></label>
+      </div>
+      <label class="field"><span class="field-label">Policy / account #</span>
+        <input id="ctPolicy" type="text" value="${esc(c.policyNo)}"></label>
+      <label class="field"><span class="field-label">Notes (coverage, deductible, gate code\u2026)</span>
+        <textarea id="ctNote" rows="2">${esc(c.note)}</textarea></label>
+      <div class="sheet-sec">
+        <h3 class="sheet-sec-hd">Documents (policy scans, cards)</h3>
+        <div class="thumb-row" id="ctPhotos"></div>
+      </div>
+      <div class="sheet-actions">
+        <button class="btn btn-primary" id="ctSave" type="button">Save</button>
+        ${existing ? '<button class="btn btn-danger" id="ctDelete" type="button">Delete</button>' : ''}
+      </div>`,
+    onMount(root) {
+      let kind = c.kind;
+      root.querySelectorAll('#ctKind .seg-opt').forEach((b) => {
+        b.addEventListener('click', () => {
+          kind = b.dataset.v;
+          root.querySelectorAll('#ctKind .seg-opt').forEach((x) => x.classList.toggle('on', x === b));
+        });
+      });
+      root.querySelectorAll('[data-ctpick]').forEach((b) => {
+        b.addEventListener('click', () => { root.querySelector('#ctName').value = b.dataset.ctpick; });
+      });
+
+      const holder = root.querySelector('#ctPhotos');
+      for (const p of photos) holder.appendChild(photoThumb(p));
+      const add = document.createElement('button');
+      add.className = 'thumb-add';
+      add.type = 'button';
+      add.textContent = '+';
+      add.addEventListener('click', async () => {
+        // Persist first so the tag flow has a real record to attach to.
+        await persist(false);
+        captureInto({ contactId: c.id, subjectId: activeSubjectId });
+      });
+      holder.appendChild(add);
+
+      const persist = async (close) => {
+        c.kind = kind;
+        c.name = root.querySelector('#ctName').value.trim() || 'Contact';
+        c.company = root.querySelector('#ctCompany').value.trim();
+        c.phone = root.querySelector('#ctPhone').value.trim();
+        c.policyNo = root.querySelector('#ctPolicy').value.trim();
+        c.note = root.querySelector('#ctNote').value.trim();
+        if (!db.contacts.some((x) => x.id === c.id)) db.contacts.push(c);
+        await put('contacts', c);
+        if (close) {
+          closeSheet(1);
+          openContactsSheet();
+        }
+      };
+      root.querySelector('#ctSave').addEventListener('click', () => persist(true).catch(showErr));
+      const del = root.querySelector('#ctDelete');
+      if (del) {
+        del.addEventListener('click', async () => {
+          if (!confirm(`Delete ${c.name}?`)) return;
+          await remove('contacts', c.id);
+          db.contacts = db.contacts.filter((x) => x.id !== c.id);
+          closeSheet(1);
+          openContactsSheet();
+        });
+      }
+    },
+  });
+}
+
+$('btnContacts').addEventListener('click', openContactsSheet);
+
+// ---------------------------------------------------------------------------
 // 10. Setup wizard and subject forms
 // ---------------------------------------------------------------------------
+
+/** Equipment records auto-created for a new house from its features. */
+function seedEquipment(features, subjectId) {
+  return EQUIPMENT_CATALOG.filter((e) => e.need(features || {})).map((e) => ({
+    id: newId('asset'), subjectId, roomId: null, name: e.name,
+    brand: '', model: '', serial: '', warrantyEnds: '',
+    specs: [], link: '', note: '',
+  }));
+}
+
+/** Room records auto-created for a new house. */
+function seedRooms(features, subjectId) {
+  return suggestRooms(features || {}).map((r) => ({
+    id: newId('room'), subjectId, name: r.name, floor: r.floor,
+    dims: '', paint: [], specs: [], note: '',
+  }));
+}
+
+/**
+ * Point seeded tasks at their auto-created equipment via assetHint:
+ * exact name match first, containment second (so "Washer" never grabs
+ * the Dishwasher).
+ */
+function linkTasksToEquipment(tasks, assets) {
+  for (const t of tasks) {
+    if (t.assetId || !t.assetHint) continue;
+    const hint = t.assetHint.toLowerCase();
+    const hitRec = assets.find((a) => a.name.toLowerCase() === hint)
+      || assets.find((a) => {
+        const n = a.name.toLowerCase();
+        return n.includes(hint) || hint.includes(n);
+      });
+    if (hitRec) t.assetId = hitRec.id;
+  }
+}
+
+/** "It's in" sheet after creating a subject: where to go next. */
+function openNextStepsSheet(subject) {
+  const isHouse = subject.kind === 'house';
+  const count = tasksOf(subject.id).length;
+  openSheet(0, {
+    title: `${subject.name} is in`,
+    body: `
+      ${isHouse ? '<p class="setting-note">Its rooms and equipment are roughed in from what you told us. Walk the Manual tab and copy what\u2019s on each label - model numbers, filter sizes, paint colors.</p>' : ''}
+      ${isHouse ? '<button class="btn btn-primary btn-block" id="nsManual" type="button">Set up equipment &amp; rooms</button>' : ''}
+      <button class="btn btn-block ${isHouse ? '' : 'btn-primary'}" id="nsTasks" type="button">See its tasks${count ? ` (${count})` : ''}</button>
+      <button class="btn btn-block btn-quiet" id="nsDone" type="button">Done for now</button>`,
+    onMount(root) {
+      const goManual = root.querySelector('#nsManual');
+      if (goManual) {
+        goManual.addEventListener('click', () => {
+          closeSheet(0);
+          renderManual();
+          show('screen-manual');
+        });
+      }
+      root.querySelector('#nsTasks').addEventListener('click', () => {
+        closeSheet(0);
+        expandOnly(subject.id);
+        renderTasks();
+        show('screen-tasks');
+      });
+      root.querySelector('#nsDone').addEventListener('click', () => closeSheet(0));
+    },
+  });
+}
 
 let wizard = null; // { subject|null, features, firstRun }
 
@@ -1988,46 +2462,72 @@ $('btnSetupCancel').addEventListener('click', () => {
 
 $('btnSetupSave').addEventListener('click', async () => {
   if (!wizard) return;
-  const { subject, features, seed } = wizard;
-  const name = (features.name || '').trim() || 'My house';
-  delete features.name;
+  const btn = $('btnSetupSave');
+  if (btn.disabled) return; // no duplicate subjects from double taps
+  btn.disabled = true;
 
-  if (!subject) {
-    const rec = {
-      id: newId('sub'), kind: 'house', name, features,
-      specs: [], seeded: seed === 'yes', created: todayIso(),
-    };
-    await put('subjects', rec);
-    db.subjects.push(rec);
-    await setActiveSubject(rec.id);
+  try {
+    const { subject, features, seed } = wizard;
+    const name = (features.name || '').trim() || 'My house';
+    delete features.name;
 
-    if (seed === 'yes') {
-      const seeded = seedTasks('house', features, rec.id, todayIso());
-      if (features.warrantyStart) seeded.push(...seedWarrantyTasks(features.warrantyStart, rec.id));
-      await putMany('tasks', seeded);
-      db.tasks.push(...seeded);
+    if (!subject) {
+      const rec = {
+        id: newId('sub'), kind: 'house', name, features,
+        specs: [], seeded: seed === 'yes', created: todayIso(),
+      };
+      db.subjects.push(rec);
+      await put('subjects', rec);
+      setActiveSubject(rec.id);
+
+      // Guided setup: rooms and equipment roughed in from the features.
+      const rooms = seedRooms(features, rec.id);
+      const equip = seedEquipment(features, rec.id);
+      db.rooms.push(...rooms);
+      db.assets.push(...equip);
+      await putMany('rooms', rooms);
+      await putMany('assets', equip);
+
+      if (seed === 'yes') {
+        const seeded = seedTasks('house', features, rec.id, todayIso());
+        if (features.warrantyStart) seeded.push(...seedWarrantyTasks(features.warrantyStart, rec.id));
+        linkTasksToEquipment(seeded, equip);
+        db.tasks.push(...seeded);
+        await putMany('tasks', seeded);
+      }
+
+      wizard = null;
+      $('setupBody').innerHTML = '';
+      expandOnly(rec.id);
+      renderHome();
+      show('screen-home');
+      updateBadge();
+      openNextStepsSheet(rec);
+    } else {
+      const hadWarranty = Boolean((subject.features || {}).warrantyStart);
+      subject.name = name;
+      subject.features = features;
+      await put('subjects', subject);
+      if (subject.seeded) await reconcileSeeded(subject);
+      if (!hadWarranty && features.warrantyStart) {
+        const existing = new Set(tasksOf(subject.id).map((t) => t.key));
+        const warr = seedWarrantyTasks(features.warrantyStart, subject.id)
+          .filter((t) => !existing.has(t.key));
+        db.tasks.push(...warr);
+        await putMany('tasks', warr);
+      }
+      wizard = null;
+      $('setupBody').innerHTML = '';
+      syncChips();
+      renderMore();
+      show('screen-more');
+      updateBadge();
     }
-  } else {
-    const hadWarranty = Boolean((subject.features || {}).warrantyStart);
-    subject.name = name;
-    subject.features = features;
-    await put('subjects', subject);
-    if (subject.seeded) await reconcileSeeded(subject);
-    if (!hadWarranty && features.warrantyStart) {
-      const existing = new Set(tasksOf(subject.id).map((t) => t.key));
-      const warr = seedWarrantyTasks(features.warrantyStart, subject.id)
-        .filter((t) => !existing.has(t.key));
-      await putMany('tasks', warr);
-      db.tasks.push(...warr);
-    }
+  } catch (err) {
+    showErr(err);
+  } finally {
+    btn.disabled = false;
   }
-
-  wizard = null;
-  $('setupBody').innerHTML = '';
-  syncChips();
-  renderTasks();
-  show('screen-tasks');
-  updateBadge();
 });
 
 /**
@@ -2098,35 +2598,50 @@ function openSimpleSubjectForm(kind, subject) {
           });
         });
       }
-      root.querySelector('#ssSave').addEventListener('click', async () => {
-        const name = (state.name || '').trim()
-          || (kind === 'vehicle' ? [state.year, state.make, state.model].filter(Boolean).join(' ') : '')
-          || (kind === 'vehicle' ? 'My vehicle' : 'My pet');
-        const features = { ...state };
-        delete features.name;
+      root.querySelector('#ssSave').addEventListener('click', async (e) => {
+        const btn = e.currentTarget;
+        if (btn.disabled) return; // no duplicate subjects from double taps
+        btn.disabled = true;
+        try {
+          const name = (state.name || '').trim()
+            || (kind === 'vehicle' ? [state.year, state.make, state.model].filter(Boolean).join(' ') : '')
+            || (kind === 'vehicle' ? 'My vehicle' : 'My pet');
+          const features = { ...state };
+          delete features.name;
 
-        if (!subject) {
-          const rec = {
-            id: newId('sub'), kind, name, features, specs: [],
-            seeded: seed === 'yes', created: todayIso(),
-          };
-          await put('subjects', rec);
-          db.subjects.push(rec);
-          await setActiveSubject(rec.id);
-          if (seed === 'yes') {
-            const seeded = seedTasks(kind, features, rec.id, todayIso());
-            await putMany('tasks', seeded);
-            db.tasks.push(...seeded);
+          if (!subject) {
+            const rec = {
+              id: newId('sub'), kind, name, features, specs: [],
+              seeded: seed === 'yes', created: todayIso(),
+            };
+            db.subjects.push(rec);
+            await put('subjects', rec);
+            setActiveSubject(rec.id);
+            if (seed === 'yes') {
+              const seeded = seedTasks(kind, features, rec.id, todayIso());
+              db.tasks.push(...seeded);
+              await putMany('tasks', seeded);
+            }
+            closeSheet(0);
+            expandOnly(rec.id);
+            renderHome();
+            show('screen-home');
+            updateBadge();
+            openNextStepsSheet(rec);
+          } else {
+            subject.name = name;
+            subject.features = features;
+            await put('subjects', subject);
+            if (subject.seeded) await reconcileSeeded(subject);
+            closeSheet(0);
+            syncChips();
+            refresh();
           }
-        } else {
-          subject.name = name;
-          subject.features = features;
-          await put('subjects', subject);
-          if (subject.seeded) await reconcileSeeded(subject);
+        } catch (err) {
+          showErr(err);
+        } finally {
+          btn.disabled = false;
         }
-        closeSheet(0);
-        syncChips();
-        refresh();
       });
     },
   });
@@ -2145,14 +2660,17 @@ async function boot() {
 
   await migrateV1();
 
-  const [subjects, rooms, tasks, assets, log, photos, inspections] = await Promise.all([
+  const [subjects, rooms, tasks, assets, log, photos, inspections, lists, contacts] = await Promise.all([
     list('subjects'), list('rooms'), list('tasks'), list('assets'),
-    list('log'), list('photos'), list('inspections'),
+    list('log'), list('photos'), list('inspections'), list('lists'), list('contacts'),
   ]);
-  Object.assign(db, { subjects, rooms, tasks, assets, log, photos, inspections });
-  await loadCollapsed();
+  Object.assign(db, {
+    subjects, rooms, tasks, assets, log, photos, inspections, lists, contacts,
+  });
+  setupHintDismissed = (await getMeta('setupHintDismissed')) || {};
 
   activeSubjectId = await getMeta('activeSubjectId');
+  await loadCollapsed();
   if (!subjectById(activeSubjectId) && db.subjects.length) {
     await setActiveSubject(db.subjects[0].id);
   }

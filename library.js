@@ -598,6 +598,81 @@ export const SPEC_SUGGESTIONS = {
     'Filter sizes', 'Wi-Fi network', 'Water main location', 'Gas shutoff location', 'Breaker panel location'],
 };
 
+// --- guided setup ----------------------------------------------------------
+
+/**
+ * Equipment auto-created for a new house from its features, so setup becomes
+ * "walk the list and copy what's on each label" instead of a blank page.
+ * Names align with task assetHints so seeded tasks link automatically.
+ */
+export const EQUIPMENT_CATALOG = [
+  { name: 'Furnace / air handler', need: (f) => f.furnace && f.furnace !== 'none' },
+  { name: 'AC condenser (outside unit)', need: (f) => f.centralAC },
+  { name: 'Mini-split', need: (f) => f.miniSplit },
+  { name: 'Boiler', need: (f) => f.boiler },
+  { name: 'Thermostat', need: (f) => (f.furnace && f.furnace !== 'none') || f.centralAC },
+  { name: 'Tankless water heater', need: (f) => f.waterHeater === 'tankless' },
+  { name: 'Water heater', need: (f) => f.waterHeater === 'tank' },
+  { name: 'Water softener', need: (f) => f.softener },
+  { name: 'Sump pump', need: (f) => f.sump },
+  { name: 'Refrigerator', need: () => true },
+  { name: 'Dishwasher', need: (f) => f.dishwasher },
+  { name: 'Range / stove', need: (f) => Boolean(f.range) },
+  { name: 'Microwave', need: (f) => f.otrMicrowave },
+  { name: 'Range hood', need: (f) => f.hood === 'vented' },
+  { name: 'Washer', need: (f) => Boolean(f.washer) },
+  { name: 'Dryer', need: (f) => Boolean(f.dryer) },
+  { name: 'Garage door opener', need: (f) => f.garage && f.garage !== '0' },
+  { name: 'Sprinkler controller', need: (f) => f.sprinklers },
+  { name: 'Generator', need: (f) => f.generator },
+  { name: 'Mower', need: (f) => f.yard },
+];
+
+/** Less-common equipment offered as quick-pick chips when adding your own. */
+export const RARE_EQUIPMENT = [
+  'Dehumidifier', 'Radon fan', 'EV charger', 'Pool pump', 'Hot tub',
+  'Attic fan', 'Whole-house fan', 'Water filtration system', 'Sauna',
+  'Wine fridge', 'Ice maker', 'Trash compactor', 'Central vacuum',
+  'Intercom', 'Irrigation well pump', 'Septic aerator', 'Gate opener',
+];
+
+/**
+ * Rooms auto-created for a new house from bed/bath counts and features.
+ * Dimensions and paint are left for the walk-through.
+ * @param {object} f features
+ * @returns {{name: string, floor: string}[]}
+ */
+export function suggestRooms(f) {
+  const rooms = [
+    { name: 'Kitchen', floor: '' },
+    { name: 'Living room', floor: '' },
+    { name: 'Laundry', floor: '' },
+  ];
+  const beds = Number(f.beds) || 0;
+  if (beds >= 1) rooms.push({ name: 'Primary bedroom', floor: '' });
+  for (let i = 2; i <= beds; i++) rooms.push({ name: `Bedroom ${i}`, floor: '' });
+  const baths = Number(f.baths) || 0;
+  if (baths >= 1) rooms.push({ name: 'Primary bath', floor: '' });
+  if (baths >= 2) rooms.push({ name: 'Hall bath', floor: '' });
+  if (baths % 1 !== 0) rooms.push({ name: 'Half bath', floor: '' });
+  if (f.garage && f.garage !== '0') rooms.push({ name: 'Garage', floor: '' });
+  return rooms;
+}
+
+/** Contact groups for the People & policies book. */
+export const CONTACT_KINDS = [
+  { id: 'insurance', label: 'Insurance & policies' },
+  { id: 'service', label: 'Service pros' },
+  { id: 'other', label: 'Other' },
+];
+
+/** Quick-pick chips when adding a service contact. */
+export const SERVICE_SUGGESTIONS = [
+  'Plumber', 'Electrician', 'HVAC', 'Landscaper', 'Handyman', 'Roofer',
+  'Pest control', 'Appliance repair', 'Garage door', 'Septic', 'Vet',
+  'Mechanic', 'House cleaner', 'Painter', 'Tree service',
+];
+
 // --- self-inspection bank --------------------------------------------------
 
 /**

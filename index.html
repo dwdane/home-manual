@@ -41,6 +41,9 @@
     </div>
     <h2 class="section-hd" id="attnHd">Needs attention</h2>
     <div id="attnList"></div>
+    <h2 class="section-hd">Lists <span class="count" id="listsCount"></span></h2>
+    <div id="homeLists"></div>
+    <button id="btnNewList" class="btn btn-block btn-quiet" type="button">New list (project, shopping&hellip;)</button>
   </main>
 </section>
 
@@ -48,7 +51,7 @@
 <section id="screen-tasks" class="screen" hidden>
   <header class="hdr hdr-plain">
     <div class="hdr-row">
-      <button class="subject-chip" id="taskSubjectChip" type="button">House &#9662;</button>
+      <h1 class="wordmark">Tasks</h1>
       <button id="btnAddTask" class="icon-btn" type="button" aria-label="Add a task">&#43;</button>
     </div>
   </header>
@@ -106,6 +109,15 @@
       <p class="setting-note setting-note-tight">
         Downloads a calendar file with every scheduled task and a reminder the
         evening before. Open it and your phone's calendar does the nagging.
+      </p>
+    </div>
+
+    <div class="setting-block">
+      <h2 class="setting-hd">Household</h2>
+      <button id="btnContacts" class="btn btn-block" type="button">People &amp; policies</button>
+      <p class="setting-note setting-note-tight">
+        Insurance policies and numbers, plus the plumber, electrician, and
+        everyone else you'd rather not dig for.
       </p>
     </div>
 
@@ -230,6 +242,8 @@
 </div>
 
 <img id="lightboxImg" class="lightbox" hidden alt="Photo">
+
+<button id="errToast" class="err-toast" type="button" hidden></button>
 
 <input id="camInput" type="file" accept="image/*" capture="environment" hidden>
 <input id="galInput" type="file" accept="image/*" multiple hidden>

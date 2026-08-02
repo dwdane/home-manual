@@ -10,7 +10,7 @@
  * update banner), so nothing swaps out from under someone mid-task.
  */
 
-const CACHE_VERSION = 'v2.0.0';
+const CACHE_VERSION = 'v2.1.0';
 const CACHE_NAME = `home-manual-${CACHE_VERSION}`;
 
 /** Everything the app needs offline. Add every new module here. */

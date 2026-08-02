@@ -598,6 +598,123 @@ code { font-family: var(--font-mono); font-size: 0.9em; color: var(--brass); }
 }
 .update-dismiss { border: 0; background: none; color: var(--paper-dim); font-size: 20px; cursor: pointer; }
 
+/* ------------------------------------------------- subject sections */
+
+.subject-hd {
+  width: 100%;
+  display: flex; align-items: center; gap: 9px;
+  margin-top: 16px;
+  padding: 12px;
+  border: 1px solid var(--rule-2);
+  border-radius: var(--radius);
+  background: var(--ink-2);
+  color: var(--paper);
+  font-size: 16px; font-weight: 700;
+  cursor: pointer;
+  text-align: left;
+}
+.subject-hd.on { border-color: var(--brass); }
+.subject-hd .chev { color: var(--paper-faint); transition: transform 0.15s; }
+.subject-hd.open .chev { transform: rotate(90deg); }
+.subject-hd .s-count { margin-left: auto; font-size: 12px; font-weight: 400; color: var(--paper-faint); font-family: var(--font-mono); }
+.subject-hd .s-over {
+  min-width: 20px; height: 20px; padding: 0 6px;
+  border-radius: 999px;
+  background: var(--over); color: #fff;
+  font-size: 12px; line-height: 20px; text-align: center;
+}
+.subject-body { padding: 0 2px; }
+.add-inline {
+  width: 100%;
+  margin-top: 10px;
+  padding: 11px;
+  border: 1px dashed var(--rule-2);
+  border-radius: var(--radius);
+  background: none;
+  color: var(--paper-dim);
+  font-size: 14px;
+  cursor: pointer;
+}
+.add-inline:active { color: var(--paper); }
+
+/* -------------------------------------------------- lists & contacts */
+
+.list-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--rule);
+}
+.list-row:last-child { border-bottom: 0; }
+.list-check {
+  flex: 0 0 auto;
+  width: 24px; height: 24px;
+  border: 1.5px solid var(--rule-2);
+  border-radius: 7px;
+  background: none;
+  color: transparent;
+  font-size: 14px;
+  cursor: pointer;
+}
+.list-row.done .list-check { background: #1D2B22; border-color: var(--ok); color: var(--ok); }
+.list-row.done .list-text { color: var(--paper-faint); text-decoration: line-through; }
+.list-text { flex: 1; font-size: 14.5px; }
+.list-x { border: 0; background: none; color: var(--paper-faint); font-size: 17px; cursor: pointer; }
+
+.contact-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--rule);
+}
+.contact-row:last-child { border-bottom: 0; }
+.contact-main { flex: 1; min-width: 0; cursor: pointer; }
+.contact-name { display: block; font-size: 14.5px; }
+.contact-sub { display: block; font-size: 12px; color: var(--paper-dim); font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.call-chip {
+  flex: 0 0 auto;
+  padding: 8px 13px;
+  border: 1px solid var(--brass);
+  border-radius: 999px;
+  background: var(--brass-deep);
+  color: var(--paper);
+  font-size: 13px; font-weight: 600;
+  text-decoration: none;
+}
+
+/* --------------------------------------------------- setup progress */
+
+.progress-card {
+  margin-top: 10px;
+  padding: 12px 13px;
+  border: 1px solid var(--brass);
+  border-radius: var(--radius);
+  background: #1E1A12;
+  position: relative;
+}
+.progress-card .p-hd { margin: 0 0 4px; font-size: 14.5px; font-weight: 700; }
+.progress-card .p-sub { margin: 0; font-size: 12.5px; color: var(--paper-dim); }
+.progress-card .p-x {
+  position: absolute; top: 6px; right: 6px;
+  border: 0; background: none;
+  color: var(--paper-faint); font-size: 17px; cursor: pointer;
+}
+
+/* --------------------------------------------------------- err toast */
+
+.err-toast {
+  position: fixed;
+  left: 12px; right: 12px;
+  top: calc(env(safe-area-inset-top) + 10px);
+  z-index: 70;
+  padding: 10px 12px;
+  border: 1px solid var(--over);
+  border-radius: var(--radius);
+  background: #2E1B18;
+  color: var(--paper);
+  font-size: 12.5px; font-family: var(--font-mono);
+  text-align: left;
+  cursor: pointer;
+}
+
 /* ------------------------------------------------------------- tabs */
 
 .tabs {

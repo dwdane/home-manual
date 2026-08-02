@@ -1,4 +1,4 @@
-# Home Manual v2.0.0
+# Home Manual v2.1.0
 
 The manual your house didn't come with. A private, offline-first web app for
 the whole household: houses, vehicles, and pets - what everything is, what it
@@ -35,6 +35,26 @@ uploaded anywhere, there are no accounts, and it works with no signal.
   and keep the record.
 - **Vehicles** (gas / hybrid / EV aware: oil, rotations, filters, wipers) and
   **pets** (species-aware vaccines, meds, chip number, papers).
+
+### New in 2.1
+
+- **Tasks grouped by subject.** Every house, vehicle, and pet is its own
+  collapsible section on the Tasks tab - fold one shut, open another, no
+  switching required. Tapping a card on Home jumps straight to that
+  subject's tasks.
+- **Guided setup.** A new house arrives with its rooms and equipment roughed
+  in from the wizard answers; a progress card on the Manual tab tracks
+  "equipment with model #" and "rooms with sizes" until the walk-through is
+  done. Rare equipment (dehumidifier, radon fan, EV charger...) offered as
+  one-tap picks.
+- **What to buy, inside the task.** If a task's equipment has a model number
+  or sizes on file, they show right in the task sheet.
+- **Lists.** Project and shopping lists on Home - a weekend deck project, a
+  hardware run - with check-offs.
+- **People & policies.** Insurance policies with numbers and document scans,
+  plus the plumber / electrician / vet with tap-to-call.
+- **Visible errors.** If anything ever fails, a red banner says so instead
+  of a button silently doing nothing.
 
 ## Files
 

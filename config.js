@@ -11,7 +11,7 @@ export const APP = {
   name: 'Home Manual',
   short: 'Manual',
   tagline: "The manual your house didn't come with.",
-  version: '2.0.0',
+  version: '2.1.0',
 
   /** IndexedDB database name. Changing this on a live app orphans user data. */
   db: 'home-manual',
@@ -29,6 +29,8 @@ export const APP = {
     { name: 'log', keyPath: 'id', indexes: [{ name: 'taskId', path: 'taskId' }] },
     { name: 'photos', keyPath: 'id', indexes: [{ name: 'bySubject', path: 'subjectId' }] },
     { name: 'inspections', keyPath: 'id', indexes: [{ name: 'bySubject', path: 'subjectId' }] },
+    { name: 'lists', keyPath: 'id' },
+    { name: 'contacts', keyPath: 'id' },
   ],
 
   /** Bottom tab bar. Each id needs a <section id="screen-{id}"> in index.html. */

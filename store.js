@@ -5,15 +5,15 @@
  * exclude photo binaries.
  *
  * v1 of this app shipped database version 1 with stores meta/tasks/assets/log
- * and a single 'profile' meta record. The upgrade to version 2 adds the new
- * stores and indexes; migrateV1() then turns the profile into a house subject
- * and tags every existing record with its subjectId.
+ * and a single 'profile' meta record. Version 2 added the subject stores and
+ * indexes; migrateV1() turns the profile into a house subject and tags every
+ * existing record with its subjectId. Version 3 adds lists and contacts.
  */
 
 import { APP } from './config.js';
 
 const META_STORE = 'meta';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 let dbPromise = null;
 

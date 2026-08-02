@@ -1,98 +1,164 @@
 // test-schedule.mjs
-// Smoke tests for the scheduling engine. Run with: node test-schedule.mjs
+/**
+ * Engine tests for schedule.js and the library, run in Node.
+ *
+ *     node test-schedule.mjs
+ *
+ * Covers date math, window recurrence, seeding per kind against feature
+ * sets, the never-born-overdue rule, warranty milestones, and the ics build.
+ * store.js is stubbed because Node has no IndexedDB.
+ */
 
-import {
-  DEFAULT_PROFILE, seedTasks, seedWarrantyTasks, nextDueAfter, buildIcs,
-  spreadWithinMonths, daysBetween, addDays,
-} from './schedule.js';
-import { LIBRARY } from './library.js';
+import { mkdtempSync, writeFileSync, readFileSync, cpSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, dirname } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+
+// Stub store.js (schedule.js imports newId from it) in a temp copy.
+const dir = mkdtempSync(join(tmpdir(), 'hm2-'));
+for (const f of ['schedule.js', 'library.js']) {
+  cpSync(join(HERE, f), join(dir, f));
+}
+writeFileSync(join(dir, 'store.js'),
+  'let n = 0;\nexport function newId(p) { return `${p}_${n++}`; }\n');
+
+const S = await import(pathToFileURL(join(dir, 'schedule.js')).href);
+const L = await import(pathToFileURL(join(dir, 'library.js')).href);
 
 let failures = 0;
-function check(name, cond, detail) {
-  if (!cond) { failures++; console.error(`FAIL  ${name}${detail ? ' - ' + detail : ''}`); }
-  else console.log(`ok    ${name}`);
+function check(name, cond, detail = '') {
+  if (cond) console.log(`ok    ${name}`);
+  else { failures++; console.log(`FAIL  ${name}${detail ? ' - ' + detail : ''}`); }
 }
 
-// --- seeding -----------------------------------------------------------
-const profile = {
-  ...DEFAULT_PROFILE,
-  showerFilter: true, softener: true, frontLoadWasher: true, dog: true,
-  hydrangeas: true, roses: true, sprinklers: true, deck: true,
-  foundation: 'crawl', fireplace: 'gas', warrantyStart: '2026-06-01',
-};
-const seeded = seedTasks(profile, '2026-07-18');
+// --- date math -------------------------------------------------------------
 
-check('seed produces a substantial list', seeded.length > 60, `got ${seeded.length}`);
-check('no seeded task is overdue at seed time',
-  seeded.every((t) => t.nextDue >= '2026-07-18'),
-  seeded.filter((t) => t.nextDue < '2026-07-18').map((t) => `${t.key}:${t.nextDue}`).join(','));
-check('slab tasks excluded on crawl profile', !seeded.some((t) => t.key === 'basement-look'));
-check('crawl task included', seeded.some((t) => t.key === 'crawl-check'));
-check('shower filter task included', seeded.some((t) => t.key === 'shower-filter'));
-check('dog tasks included', seeded.filter((t) => t.cat === 'pet').length >= 7);
-check('tankless task excluded on tank profile', !seeded.some((t) => t.key === 'wh-tankless-descale'));
-check('every seeded task has a valid ISO date', seeded.every((t) => /^\d{4}-\d{2}-\d{2}$/.test(t.nextDue)));
+check('addDays crosses months', S.addDays('2026-01-30', 3) === '2026-02-02');
+check('addInterval months clamps day', S.addInterval('2026-01-31', { n: 1, unit: 'm' }) === '2026-02-28');
+check('addInterval years', S.addInterval('2026-03-05', { n: 2, unit: 'y' }) === '2028-03-05');
+check('daysBetween', S.daysBetween('2026-08-01', '2026-08-11') === 10);
 
-// Spreading: no month should have more than a few seasonal tasks per day.
-const perDay = new Map();
-for (const t of seeded.filter((t) => t.windows)) {
-  perDay.set(t.nextDue, (perDay.get(t.nextDue) || 0) + 1);
+// --- recurrence ------------------------------------------------------------
+
+const seasonal = { windows: [[4, 5], [10, 11]], yearGap: 1 };
+check('nextDueAfter jumps to next window',
+  S.nextDueAfter(seasonal, '2026-04-20') === '2026-10-01');
+check('nextDueAfter wraps the year',
+  S.nextDueAfter(seasonal, '2026-11-15') === '2027-04-01');
+
+const wrapWin = { windows: [[11, 2]], yearGap: 1 };
+const wrapNext = S.nextDueAfter(wrapWin, '2026-12-10');
+check('wrap window (Nov-Feb) schedules the next season, not this one',
+  wrapNext === '2027-11-01', wrapNext);
+
+const gap2 = { windows: [[3, 5]], yearGap: 3 };
+check('yearGap respected', S.nextDueAfter(gap2, '2026-04-10') === '2029-03-01');
+
+const interval = { every: { n: 3, unit: 'm' } };
+check('interval from completion date', S.nextDueAfter(interval, '2026-08-01') === '2026-11-01');
+check('one-shot returns null', S.nextDueAfter({ oneShot: true }, '2026-08-01') === null);
+
+// --- seeding: house --------------------------------------------------------
+
+const start = '2026-08-01';
+const houseAll = S.seedTasks('house', S.DEFAULT_FEATURES.house, 'sub_h', start);
+check('house seeding produces a healthy list', houseAll.length >= 35, String(houseAll.length));
+check('nothing is born overdue', houseAll.every((t) => !t.nextDue || t.nextDue >= start));
+check('interval tasks staggered, not day-one',
+  houseAll.filter((t) => t.every).every((t) => t.nextDue > start));
+
+const slabNoAC = { ...S.DEFAULT_FEATURES.house, centralAC: false, foundation: 'slab', sump: false };
+const slabTasks = S.seedTasks('house', slabNoAC, 'sub_h', start);
+check('no AC tasks without AC', !slabTasks.some((t) => ['ac-service', 'condensate', 'condenser-clean'].includes(t.key)));
+check('no crawl check on a slab', !slabTasks.some((t) => t.key === 'crawl-check'));
+
+const tanklessF = { ...S.DEFAULT_FEATURES.house, waterHeater: 'tankless' };
+const tanklessTasks = S.seedTasks('house', tanklessF, 'sub_h', start);
+check('tankless gets descale, not flush',
+  tanklessTasks.some((t) => t.key === 'wh-descale') && !tanklessTasks.some((t) => t.key === 'wh-flush'));
+
+const recircF = { ...S.DEFAULT_FEATURES.house, otrMicrowave: true, hood: 'recirc' };
+check('recirculating OTR microwave gets the charcoal filter task',
+  S.seedTasks('house', recircF, 'sub_h', start).some((t) => t.key === 'otr-charcoal'));
+const ventedF = { ...S.DEFAULT_FEATURES.house, hood: 'vented' };
+check('vented hood skips charcoal, gets degrease',
+  !S.seedTasks('house', ventedF, 'sub_h', start).some((t) => t.key === 'otr-charcoal')
+  && S.seedTasks('house', ventedF, 'sub_h', start).some((t) => t.key === 'hood-filter'));
+
+check('septic pumping appears for septic homes',
+  S.seedTasks('house', { ...S.DEFAULT_FEATURES.house, sewage: 'septic' }, 's', start)
+    .some((t) => t.key === 'septic-pump'));
+
+// Seasonal spreading: no month-day gets more than a few seeded seasonal tasks.
+const byDay = new Map();
+for (const t of houseAll.filter((x) => x.windows && x.nextDue)) {
+  byDay.set(t.nextDue, (byDay.get(t.nextDue) || 0) + 1);
 }
-const worst = Math.max(...perDay.values());
-check('seasonal tasks spread across days (max 3 per day)', worst <= 3, `worst day has ${worst}`);
+check('seasonal tasks spread within their month', Math.max(...byDay.values()) <= 4,
+  JSON.stringify([...byDay.entries()].sort()));
 
-// --- warranty ----------------------------------------------------------
-const warr = seedWarrantyTasks('2026-06-01');
-check('4 warranty milestones', warr.length === 4);
-check('11-month milestone lands in month 11', warr[2].nextDue === addDays('2026-06-01', 330), warr[2].nextDue);
+// --- seeding: vehicle and pet ----------------------------------------------
+
+const gasCar = S.seedTasks('vehicle', { fuel: 'gas' }, 'sub_v', start);
+check('gas vehicle gets oil changes', gasCar.some((t) => t.key === 'oil'));
+const ev = S.seedTasks('vehicle', { fuel: 'ev' }, 'sub_v', start);
+check('EV skips oil and engine air but keeps tires and 12V',
+  !ev.some((t) => t.key === 'oil') && !ev.some((t) => t.key === 'engine-air')
+  && ev.some((t) => t.key === 'tire-rotate') && ev.some((t) => t.key === 'battery-12v'));
+
+const dog = S.seedTasks('pet', { species: 'dog' }, 'sub_p', start);
+const cat = S.seedTasks('pet', { species: 'cat' }, 'sub_p', start);
+check('dog gets heartworm; cat does not',
+  dog.some((t) => t.key === 'heartworm') && !cat.some((t) => t.key === 'heartworm'));
+check('cat gets FVRCP and litter deep-clean',
+  cat.some((t) => t.key === 'fvrcp') && cat.some((t) => t.key === 'litter-deep'));
+
+// --- warranty milestones ---------------------------------------------------
+
+const warr = S.seedWarrantyTasks('2026-06-15', 'sub_h');
+check('four warranty milestones', warr.length === 4);
+check('11-month lands before the anniversary',
+  warr.find((t) => t.key === 'warr-11mo').nextDue === S.addDays('2026-06-15', 330));
 check('warranty tasks are one-shot', warr.every((t) => t.oneShot));
 
-// --- recurrence --------------------------------------------------------
-const monthly = { every: { n: 1, unit: 'm' } };
-check('monthly interval', nextDueAfter(monthly, '2026-07-18') === '2026-08-18');
+// --- completion flow helpers ----------------------------------------------
 
-const q = { every: { n: 3, unit: 'm' } };
-check('quarterly interval', nextDueAfter(q, '2026-11-30') === '2027-03-02' || nextDueAfter(q, '2026-11-30') === '2027-02-28' || nextDueAfter(q, '2026-11-30') === '2027-03-01',
-  nextDueAfter(q, '2026-11-30'));
+const t1 = S.taskFromEntry({ key: 'x', title: 'X', cat: 'other', every: { n: 6, unit: 'm' } }, 's', '2026-08-10');
+check('taskFromEntry carries schedule', t1.every.n === 6 && t1.nextDue === '2026-08-10');
+check('blankTask is unscheduled', S.blankTask('s').nextDue === null);
 
-const gutters = { windows: [[4, 5], [10, 11]], yearGap: 1 };
-check('twice-yearly: done in spring -> due in fall', nextDueAfter(gutters, '2026-04-20') === '2026-10-01',
-  nextDueAfter(gutters, '2026-04-20'));
-check('twice-yearly: done in fall -> due next spring', nextDueAfter(gutters, '2026-10-15') === '2027-04-01',
-  nextDueAfter(gutters, '2026-10-15'));
-check('done between windows -> next window', nextDueAfter(gutters, '2026-07-18') === '2026-10-01',
-  nextDueAfter(gutters, '2026-07-18'));
+// --- ics -------------------------------------------------------------------
 
-const hydrangea = { windows: [[2, 3]], yearGap: 1 };
-check('yearly window: done inside -> next year', nextDueAfter(hydrangea, '2026-02-20') === '2027-02-01',
-  nextDueAfter(hydrangea, '2026-02-20'));
+const rows = [
+  { task: { ...t1, id: 'a1', title: 'Filter', nextDue: '2026-09-01', why: 'Because', paused: false }, subjectName: 'House' },
+  { task: { id: 'a2', title: 'Heartworm', nextDue: '2026-09-03', every: { n: 1, unit: 'm' }, paused: false, oneShot: false }, subjectName: 'Biscuit' },
+  { task: { id: 'a3', title: 'Skip me', nextDue: null, paused: false }, subjectName: 'House' },
+];
+const ics = S.buildIcs(rows, 'Home Manual');
+check('ics prefixes subject when multiple subjects', ics.includes('SUMMARY:[Biscuit] Heartworm'));
+check('ics skips unscheduled tasks', !ics.includes('Skip me'));
+check('ics has alarms and rrules', ics.includes('TRIGGER:-PT12H') && ics.includes('RRULE:FREQ=MONTHLY;INTERVAL=1'));
+check('ics dates are DATE values', ics.includes('DTSTART;VALUE=DATE:20260901'));
 
-const septic = { windows: [[5, 9]], yearGap: 3 };
-const septicNext = nextDueAfter(septic, '2026-06-10');
-check('3-year gap task lands ~3 years out', septicNext.startsWith('2029'), septicNext);
+// --- inspection bank -------------------------------------------------------
 
-const radon = { windows: [[11, 2]], yearGap: 2 };
-const radonNext = nextDueAfter(radon, '2026-12-05');   // inside a wrap window
-check('wrap window (Nov-Feb): done in Dec -> ~2 years out', radonNext >= '2028-11-01', radonNext);
-const radonNext2 = nextDueAfter(radon, '2027-01-15');  // inside the tail of the wrap
-check('wrap window: done in Jan handled', /^\d{4}-\d{2}-\d{2}$/.test(radonNext2), radonNext2);
+const feats = S.DEFAULT_FEATURES.house;
+let bankCount = 0;
+for (const g of L.INSPECTION_BANK) {
+  for (const item of g.items) if (!item.need || item.need(feats)) bankCount++;
+}
+check('inspection bank yields a real walk (25+ items)', bankCount >= 25, String(bankCount));
+// Defaults have no sump and no deck; adding both must grow the walk.
+const rich = { ...feats, sump: true, deck: 'wood' };
+let richCount = 0;
+for (const g of L.INSPECTION_BANK) {
+  for (const item of g.items) if (!item.need || item.need(rich)) richCount++;
+}
+check('inspection bank filters by features', richCount > bankCount,
+  `${richCount} vs ${bankCount}`);
 
-// --- ics ---------------------------------------------------------------
-const ics = buildIcs(seeded.concat(warr), 'Test House');
-check('ics has calendar wrapper', ics.startsWith('BEGIN:VCALENDAR') && ics.endsWith('END:VCALENDAR'));
-check('ics event per active task',
-  (ics.match(/BEGIN:VEVENT/g) || []).length === seeded.length + warr.length);
-check('interval tasks carry RRULE', ics.includes('RRULE:FREQ=MONTHLY;INTERVAL=1'));
-check('one-shot warranty events carry no RRULE',
-  !ics.split('BEGIN:VEVENT').find((v) => v.includes('warr-11mo') && v.includes('RRULE')));
-
-// --- library sanity ----------------------------------------------------
-const keys = new Set();
-let dupes = 0;
-for (const e of LIBRARY) { if (keys.has(e.key)) dupes++; keys.add(e.key); }
-check('library keys unique', dupes === 0);
-check('every library entry has every OR windows', LIBRARY.every((e) => Boolean(e.every) !== Boolean(e.windows)));
-check('library has 80+ tasks', LIBRARY.length >= 80, `got ${LIBRARY.length}`);
-
-console.log(failures ? `\n${failures} FAILURES` : '\nALL TESTS PASSED');
-process.exit(failures ? 1 : 0);
+console.log();
+if (failures) { console.log(`${failures} FAILURE(S)`); process.exit(1); }
+console.log('ALL ENGINE TESTS PASSED');

@@ -1,266 +1,259 @@
 // schedule.js
-// The scheduling engine.
-//
-// Three jobs live here:
-//
-//   1. Profile -> task list. Filter the library by the house profile and turn
-//      matching entries into concrete task instances with due dates.
-//   2. Recurrence math. Given a task and a completion date, compute the next
-//      due date - strict intervals for interval tasks, next seasonal window
-//      for windowed tasks.
-//   3. Load balancing. Seasonal tasks are spread across the weeks of their
-//      windows instead of all landing on the 1st of the month, so no single
-//      weekend gets buried.
-//
-// Dates are ISO date strings (YYYY-MM-DD) throughout. They sort lexically,
-// diff trivially, and serialize to IndexedDB without timezone surprises.
+/**
+ * The scheduling engine: date helpers, recurrence math, seeding a subject's
+ * task list from its features, spreading seasonal work across a month, and
+ * the .ics calendar export.
+ *
+ * Dates are ISO YYYY-MM-DD strings compared lexically. No timezone math.
+ * A task with nextDue === null is deliberately unscheduled: it lives on the
+ * list as a reference item, keeps its history, and can be scheduled at any
+ * completion.
+ */
 
 import { LIBRARY, WARRANTY_MILESTONES } from './library.js';
+import { newId } from './store.js';
 
-export const DEFAULT_PROFILE = {
-  houseName: '',
-  warrantyStart: '',          // ISO date; empty = no builder warranty tasks
-  climate: 'freezing',        // freezing | mild - gates winterization tasks
+// --- dates -----------------------------------------------------------------
 
-  // Systems
-  forcedAir: true,
-  centralAir: true,
-  humidifier: false,
-  erv: false,
-  fireplace: 'none',          // none | gas | wood
-  waterHeater: 'tank',        // tank | tankless
-  foundation: 'slab',         // slab | crawl | basement
-
-  // Water treatment & appliances
-  softener: false,
-  showerFilter: false,
-  sedimentFilter: false,
-  fridgeFilter: true,
-  frontLoadWasher: false,
-  disposal: true,
-  sumpPump: false,
-  septic: false,
-  well: false,
-
-  // Outside
-  garage: true,
-  gutters: true,
-  deck: false,
-  sprinklers: false,
-
-  // Garden
-  lawn: true,
-  beds: true,
-  hydrangeas: false,
-  roses: false,
-  fruitTrees: false,
-
-  // Pets
-  dog: false,
-};
-
-// ---------------------------------------------------------------------------
-// Date helpers
-// ---------------------------------------------------------------------------
-
+/** Today as YYYY-MM-DD in local time. */
 export function todayIso() {
   const d = new Date();
-  return isoOf(d.getFullYear(), d.getMonth() + 1, d.getDate());
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-function isoOf(y, m, d) {
-  return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+/** Build an ISO date, clamping the day into the month. */
+export function isoOf(year, month, day) {
+  const last = new Date(year, month, 0).getDate();
+  return `${year}-${String(month).padStart(2, '0')}-${String(Math.min(day, last)).padStart(2, '0')}`;
 }
 
-function parseIso(iso) {
-  const [y, m, d] = iso.split('-').map(Number);
-  return new Date(y, m - 1, d);
-}
-
+/** Add whole days to an ISO date. */
 export function addDays(iso, days) {
-  const d = parseIso(iso);
-  d.setDate(d.getDate() + days);
-  return isoOf(d.getFullYear(), d.getMonth() + 1, d.getDate());
+  const [y, m, d] = iso.split('-').map(Number);
+  const dt = new Date(y, m - 1, d + days);
+  return isoOf(dt.getFullYear(), dt.getMonth() + 1, dt.getDate());
 }
 
-function addInterval(iso, every) {
-  const d = parseIso(iso);
-  if (every.unit === 'w') d.setDate(d.getDate() + every.n * 7);
-  else if (every.unit === 'm') d.setMonth(d.getMonth() + every.n);
-  else d.setFullYear(d.getFullYear() + every.n);
-  return isoOf(d.getFullYear(), d.getMonth() + 1, d.getDate());
-}
-
-/** Whole days from `a` to `b` (positive if b is later). */
+/** Whole days from a to b (positive when b is later). */
 export function daysBetween(a, b) {
-  return Math.round((parseIso(b) - parseIso(a)) / 86400000);
+  const [ay, am, ad] = a.split('-').map(Number);
+  const [by, bm, bd] = b.split('-').map(Number);
+  return Math.round((new Date(by, bm - 1, bd) - new Date(ay, am - 1, ad)) / 86400000);
 }
 
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+/** Add an interval {n, unit: 'w'|'m'|'y'} to an ISO date. */
+export function addInterval(iso, every) {
+  const [y, m, d] = iso.split('-').map(Number);
+  if (every.unit === 'w') return addDays(iso, every.n * 7);
+  if (every.unit === 'm') {
+    const total = m - 1 + every.n;
+    return isoOf(y + Math.floor(total / 12), (total % 12) + 1, d);
+  }
+  return isoOf(y + every.n, m, d);
+}
 
+/** Human date: "Mar 12" this year, "Mar 12, 2027" otherwise. */
 export function fmtDate(iso) {
   if (!iso) return '';
   const [y, m, d] = iso.split('-').map(Number);
-  const now = new Date().getFullYear();
-  return `${MONTHS[m - 1]} ${d}${y !== now ? ' ' + y : ''}`;
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const thisYear = new Date().getFullYear();
+  return `${months[m - 1]} ${d}${y === thisYear ? '' : `, ${y}`}`;
 }
 
-/** Human description of a task's cadence, for the list rows. */
+const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July',
+  'August', 'September', 'October', 'November', 'December'];
+
+/** Human cadence: "Every 3 months", "Apr-May & Oct-Nov", "One time". */
 export function fmtCadence(task) {
   if (task.every) {
-    const { n, unit } = task.every;
-    const word = unit === 'w' ? 'week' : unit === 'm' ? 'month' : 'year';
-    return n === 1 ? `Every ${word}` : `Every ${n} ${word}s`;
+    const unit = { w: 'week', m: 'month', y: 'year' }[task.every.unit];
+    return task.every.n === 1 ? `Every ${unit}` : `Every ${task.every.n} ${unit}s`;
   }
   if (task.windows && task.windows.length) {
-    const names = task.windows
-      .map(([a, b]) => (a === b ? MONTHS[a - 1] : `${MONTHS[a - 1]}\u2013${MONTHS[b - 1]}`))
-      .join(' & ');
-    const gap = task.yearGap && task.yearGap > 1 ? `, every ${task.yearGap} yrs` : '';
-    return `${names}${gap}`;
+    const gap = task.yearGap > 1 ? `, every ${task.yearGap} yrs` : '';
+    const parts = task.windows.map(([a, b]) => (a === b
+      ? MONTH_NAMES[a - 1].slice(0, 3)
+      : `${MONTH_NAMES[a - 1].slice(0, 3)}\u2013${MONTH_NAMES[b - 1].slice(0, 3)}`));
+    return parts.join(' & ') + gap;
   }
-  return 'One time';
+  if (task.oneShot) return 'One time';
+  return 'Unscheduled';
 }
 
-// ---------------------------------------------------------------------------
-// Recurrence
-// ---------------------------------------------------------------------------
+// --- recurrence ------------------------------------------------------------
 
-/**
- * Next occurrence of a windowed task strictly after `afterIso`.
- * Returns the ISO date of the start of the next eligible window (day is
- * refined by the seeder's week-spreading; recomputation after completion
- * lands on the window start, which the user can nudge if they care).
- */
-function nextWindowStart(windows, yearGap, afterIso) {
-  const after = parseIso(afterIso);
-  const gap = Math.max(1, yearGap || 1);
-
-  // Collect candidate window starts across this year and the next few, then
-  // pick the earliest one after the reference date.
-  const candidates = [];
-  for (let y = after.getFullYear(); y <= after.getFullYear() + gap + 1; y++) {
-    for (const [startM] of windows) {
-      candidates.push(new Date(y, startM - 1, 1));
-    }
-  }
-  candidates.sort((a, b) => a - b);
-  const next = candidates.find((c) => c > after);
-  // yearGap > 1: push whole years forward from the found occurrence.
-  if (gap > 1) next.setFullYear(next.getFullYear() + (gap - 1));
-  return isoOf(next.getFullYear(), next.getMonth() + 1, next.getDate());
-}
-
-/** Is `iso` inside one of the task's month windows? */
-function insideWindow(windows, iso) {
+/** Whether an ISO date's month falls inside any window (handles Nov-Feb). */
+export function insideWindow(windows, iso) {
   const m = Number(iso.split('-')[1]);
   return windows.some(([a, b]) => (a <= b ? m >= a && m <= b : m >= a || m <= b));
 }
 
 /**
+ * The first day of the next window strictly after `afterIso`, respecting a
+ * gap of `yearGap` years between occurrences.
+ */
+export function nextWindowStart(windows, yearGap, afterIso) {
+  const gap = Math.max(1, yearGap || 1);
+  const afterYear = Number(afterIso.split('-')[0]);
+  const candidates = [];
+  for (let y = afterYear; y <= afterYear + gap + 1; y++) {
+    for (const [a] of windows) candidates.push(isoOf(y, a, 1));
+  }
+  candidates.sort();
+  const next = candidates.find((c) => c > afterIso);
+  if (gap === 1) return next;
+  const [y, m] = next.split('-').map(Number);
+  return isoOf(y + (gap - 1), m, 1);
+}
+
+/**
  * If `iso` falls inside one of the windows, return the last day of that
- * window (handling windows that wrap the year end, like Nov-Feb). Otherwise
- * return `iso` unchanged. Used so completing a task inside its window
- * schedules the NEXT window rather than repeating this one.
+ * window (handling wrap windows like Nov-Feb); otherwise `iso` unchanged.
+ * Completing inside a window schedules the NEXT window, not a repeat.
  */
 function windowEndRef(windows, iso) {
   const [y, m] = iso.split('-').map(Number);
   const w = windows.find(([a, b]) => (a <= b ? m >= a && m <= b : m >= a || m <= b));
   if (!w) return iso;
   const [a, b] = w;
-  const endYear = a > b && m >= a ? y + 1 : y; // wrap window, still in the head
+  const endYear = a > b && m >= a ? y + 1 : y;
   return isoOf(endYear, b, 28);
 }
 
-/**
- * Compute the next due date after completing a task on `doneIso`.
- */
+/** Next due date after completing on `doneIso`, or null for one-shots. */
 export function nextDueAfter(task, doneIso) {
   if (task.every) return addInterval(doneIso, task.every);
   if (task.windows && task.windows.length) {
     return nextWindowStart(task.windows, task.yearGap, windowEndRef(task.windows, doneIso));
   }
-  return null; // one-shot task: no next occurrence
+  return null;
 }
 
-// ---------------------------------------------------------------------------
-// Seeding
-// ---------------------------------------------------------------------------
+// --- seeding ---------------------------------------------------------------
 
-/** Does a library entry's `requires` block match the profile? */
-export function matches(entry, profile) {
-  if (!entry.requires) return true;
-  return Object.entries(entry.requires).every(([key, want]) => {
-    const have = profile[key];
-    return typeof want === 'boolean' ? Boolean(have) === want : have === want;
-  });
-}
+/** Default feature sets per subject kind. */
+export const DEFAULT_FEATURES = {
+  house: {
+    type: 'house', stories: 2, beds: 3, baths: 2,
+    climateFreeze: true, foundation: 'slab', garage: '1',
+    porch: true, patio: false, deck: 'none', fence: false,
+    yard: true, gardenBeds: false, trees: false, sprinklers: false,
+    pool: false, hotTub: false, shed: false, gutters: true,
+    driveway: 'concrete',
+    furnace: 'gas', centralAC: true, miniSplit: false, boiler: false,
+    humidifier: false, erv: false, ceilingFans: true, bathFans: true,
+    atticFan: false, fireplace: 'none',
+    waterHeater: 'tank', softener: false, sedimentFilter: false,
+    showerFilter: false, sump: false, sewage: 'sewer', water: 'city',
+    fridgeFilter: true, standFreezer: false, dishwasher: true,
+    disposal: true, range: 'electric', hood: 'recirc', otrMicrowave: true,
+    washer: 'front', dryer: 'electric',
+    smoke: true, radonArea: false, security: false, generator: false,
+    warrantyStart: '',
+  },
+  vehicle: { fuel: 'gas', year: '', make: '', model: '' },
+  pet: { species: 'dog', birthday: '' },
+};
 
-let idCounter = 0;
-function newId(prefix) {
-  return `${prefix}-${Date.now().toString(36)}-${(idCounter++).toString(36)}`;
+/** Whether a library entry applies to a feature set. */
+export function matches(entry, features) {
+  return entry.need ? Boolean(entry.need(features || {})) : true;
 }
 
 /**
- * Build the initial task list for a profile.
- *
- * Load balancing: instead of dumping every task's first due date on "today"
- * or on the 1st of its window month, tasks are bucketed by due month and then
- * spread across the days of that month round-robin (7-day steps: the 1st,
- * 8th, 15th, 22nd), so a month with eight seasonal tasks becomes two per
- * weekend, not eight in one.
+ * Build a task record from a library entry.
+ * @param {object} entry library entry
+ * @param {string} subjectId
+ * @param {string|null} nextDue
  */
-export function seedTasks(profile, fromIso) {
-  const start = fromIso || todayIso();
-  const tasks = [];
+export function taskFromEntry(entry, subjectId, nextDue) {
+  return {
+    id: newId('task'),
+    subjectId,
+    key: entry.key,
+    title: entry.title,
+    cat: entry.cat,
+    why: entry.why || '',
+    how: entry.how || '',
+    every: entry.every || null,
+    windows: entry.windows || null,
+    yearGap: entry.yearGap || 1,
+    nextDue: nextDue || null,
+    lastDone: null,
+    assetId: null,
+    assetHint: entry.assetHint || '',
+    note: '',
+    link: entry.link || '',
+    photoIds: [],
+    paused: false,
+    custom: false,
+    oneShot: Boolean(entry.oneShot),
+  };
+}
 
-  for (const entry of LIBRARY) {
-    if (!matches(entry, profile)) continue;
+/** A blank custom task for the editor. */
+export function blankTask(subjectId, cat) {
+  return {
+    id: newId('task'),
+    subjectId,
+    key: null,
+    title: '',
+    cat: cat || 'other',
+    why: '',
+    how: '',
+    every: null,
+    windows: null,
+    yearGap: 1,
+    nextDue: null,
+    lastDone: null,
+    assetId: null,
+    assetHint: '',
+    note: '',
+    link: '',
+    photoIds: [],
+    paused: false,
+    custom: true,
+    oneShot: false,
+  };
+}
 
-    let firstDue;
-    if (entry.windows) {
-      // If we are inside a window right now, the task is due now; otherwise
-      // the soonest upcoming window (gap of 1 at seed time - the first
-      // occurrence should never be pushed years out).
-      firstDue = insideWindow(entry.windows, start)
-        ? start
-        : nextWindowStart(entry.windows, 1, start);
-    } else {
-      // Interval tasks: first due one interval from now, except monthly-or-
-      // faster habits which start within the first month.
-      firstDue = addInterval(start, entry.every);
-    }
-
-    tasks.push({
-      id: newId('t'),
-      key: entry.key,
-      title: entry.title,
-      cat: entry.cat,
-      why: entry.why || '',
-      every: entry.every || null,
-      windows: entry.windows || null,
-      yearGap: entry.yearGap || 1,
-      nextDue: firstDue,
-      lastDone: null,
-      assetId: null,
-      assetHint: entry.asset || null,
-      note: '',
-      link: '',
-      paused: false,
-      custom: false,
-    });
+/**
+ * First due date for a library entry seeded on `start`.
+ */
+function firstDue(entry, start) {
+  if (entry.windows) {
+    return insideWindow(entry.windows, start)
+      ? start
+      : nextWindowStart(entry.windows, 1, start);
   }
+  if (entry.every) {
+    const stagger = { w: 7, m: 21, y: 60 }[entry.every.unit] || 21;
+    return addDays(start, Math.min(stagger, entry.every.n * (entry.every.unit === 'w' ? 7 : 30)));
+  }
+  return start;
+}
 
+/**
+ * Seed scheduled tasks for a subject from its features.
+ * @param {string} kind 'house'|'vehicle'|'pet'
+ * @param {object} features
+ * @param {string} subjectId
+ * @param {string} start ISO date
+ * @returns {object[]} tasks, spread within months, never overdue at seed
+ */
+export function seedTasks(kind, features, subjectId, start) {
+  const tasks = (LIBRARY[kind] || [])
+    .filter((entry) => matches(entry, features))
+    .map((entry) => taskFromEntry(entry, subjectId, firstDue(entry, start)));
   spreadWithinMonths(tasks, start);
   return tasks;
 }
 
 /**
- * Spread tasks sharing a due month across that month. Mutates nextDue.
- * Interval tasks keep their computed day; only windowed (seasonal) tasks are
- * spread, since those are the ones that pile up on month boundaries.
- * `minIso`, if given, floors every assigned date so a fresh seed never
- * starts life already overdue.
+ * Spread windowed (seasonal) tasks sharing a due month across days
+ * 1/8/15/22 so a season change doesn't dump everything on one day.
+ * `minIso` floors assigned dates so nothing is born overdue.
  */
 export function spreadWithinMonths(tasks, minIso) {
   const byMonth = new Map();
@@ -271,9 +264,9 @@ export function spreadWithinMonths(tasks, minIso) {
     byMonth.get(ym).push(t);
   }
   for (const [ym, group] of byMonth) {
-    group.sort((a, b) => a.key.localeCompare(b.key)); // deterministic
+    group.sort((a, b) => (a.key || a.title).localeCompare(b.key || b.title));
     group.forEach((t, i) => {
-      const day = 1 + (i % 4) * 7 + Math.floor(i / 4); // 1,8,15,22,2,9,16,23...
+      const day = 1 + (i % 4) * 7 + Math.floor(i / 4);
       let due = `${ym}-${String(Math.min(day, 28)).padStart(2, '0')}`;
       if (minIso && due < minIso) due = addDays(minIso, i % 7);
       t.nextDue = due;
@@ -282,124 +275,69 @@ export function spreadWithinMonths(tasks, minIso) {
 }
 
 /**
- * One-shot builder-warranty milestone tasks from a warranty start date.
+ * One-shot builder-warranty milestone tasks from a closing date.
+ * @param {string} warrantyStart ISO date
+ * @param {string} subjectId
  */
-export function seedWarrantyTasks(warrantyStartIso) {
-  if (!warrantyStartIso) return [];
+export function seedWarrantyTasks(warrantyStart, subjectId) {
   return WARRANTY_MILESTONES.map((m) => ({
-    id: newId('w'),
-    key: m.key,
-    title: m.title,
-    cat: m.cat,
-    why: m.why,
-    every: null,
-    windows: null,
-    yearGap: 1,
-    nextDue: addDays(warrantyStartIso, m.offsetDays),
-    lastDone: null,
-    assetId: null,
-    assetHint: null,
-    note: '',
-    link: '',
-    paused: false,
-    custom: false,
+    ...taskFromEntry(m, subjectId, addDays(warrantyStart, m.offsetDays)),
     oneShot: true,
   }));
 }
 
-/** A blank custom task the editor can fill in. */
-export function blankTask() {
-  return {
-    id: newId('c'),
-    key: null,
-    title: '',
-    cat: 'clean',
-    why: '',
-    every: { n: 1, unit: 'm' },
-    windows: null,
-    yearGap: 1,
-    nextDue: todayIso(),
-    lastDone: null,
-    assetId: null,
-    assetHint: null,
-    note: '',
-    link: '',
-    paused: false,
-    custom: true,
-  };
+// --- ics -------------------------------------------------------------------
+
+/** RRULE for a task, or empty for one-shots/unscheduled. */
+function rruleFor(task) {
+  if (task.every) {
+    const freq = { w: 'WEEKLY', m: 'MONTHLY', y: 'YEARLY' }[task.every.unit];
+    return `RRULE:FREQ=${freq};INTERVAL=${task.every.n}`;
+  }
+  if (task.windows && task.windows.length) {
+    return `RRULE:FREQ=YEARLY;INTERVAL=${Math.max(1, task.yearGap || 1)}`;
+  }
+  return '';
 }
 
-// ---------------------------------------------------------------------------
-// Grouping for the Today screen
-// ---------------------------------------------------------------------------
-
-export const BUCKETS = [
-  { id: 'over', label: 'Overdue' },
-  { id: 'week', label: 'This week' },
-  { id: 'month', label: 'This month' },
-  { id: 'later', label: 'Coming up' },
-];
-
-export function bucketOf(task, today) {
-  const diff = daysBetween(today, task.nextDue);
-  if (diff < 0) return 'over';
-  if (diff <= 7) return 'week';
-  if (diff <= 31) return 'month';
-  return 'later';
-}
-
-// ---------------------------------------------------------------------------
-// Calendar export (.ics)
-// ---------------------------------------------------------------------------
-
-function icsDate(iso) {
-  return iso.replaceAll('-', '');
-}
-
+/** Escape ICS text. */
 function icsEscape(s) {
   return String(s || '').replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\n/g, '\\n');
 }
 
 /**
- * Build an iCalendar file: one all-day event per active task at its next due
- * date, with a repeat rule where the cadence maps cleanly, and a reminder
- * alarm the morning before. Subscribing/importing this into the phone's
- * native calendar is how a serverless app gets real notifications.
+ * Build a VCALENDAR of every scheduled task, with a reminder the evening
+ * before. Tasks may come from several subjects; each event is prefixed with
+ * the subject's name when more than one subject is present.
+ * @param {{task: object, subjectName: string}[]} rows
+ * @param {string} calName
  */
-export function buildIcs(tasks, houseName) {
+export function buildIcs(rows, calName) {
+  const multi = new Set(rows.map((r) => r.subjectName)).size > 1;
+  const now = new Date().toISOString().replace(/[-:]/g, '').slice(0, 15) + 'Z';
   const lines = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
-    'PRODID:-//Home Manual//EN',
-    `X-WR-CALNAME:${icsEscape(houseName || 'Home Manual')}`,
+    'PRODID:-//home-manual//EN',
+    `X-WR-CALNAME:${icsEscape(calName)}`,
   ];
 
-  const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+/, '');
-
-  for (const t of tasks) {
-    if (t.paused || !t.nextDue) continue;
-
-    let rrule = '';
-    if (t.every) {
-      const freq = t.every.unit === 'w' ? 'WEEKLY' : t.every.unit === 'm' ? 'MONTHLY' : 'YEARLY';
-      rrule = `RRULE:FREQ=${freq};INTERVAL=${t.every.n}`;
-    } else if (t.windows && !t.oneShot) {
-      rrule = `RRULE:FREQ=YEARLY;INTERVAL=${Math.max(1, t.yearGap || 1)}`;
-    }
-
+  for (const { task, subjectName } of rows) {
+    if (!task.nextDue || task.paused) continue;
+    const title = multi ? `[${subjectName}] ${task.title}` : task.title;
+    const dt = task.nextDue.replace(/-/g, '');
+    const rrule = task.oneShot ? '' : rruleFor(task);
     lines.push(
       'BEGIN:VEVENT',
-      `UID:${t.id}@home-manual`,
-      `DTSTAMP:${stamp}`,
-      `DTSTART;VALUE=DATE:${icsDate(t.nextDue)}`,
-      `SUMMARY:${icsEscape('\u2302 ' + t.title)}`,
-      `DESCRIPTION:${icsEscape(t.why)}`,
-    );
-    if (rrule) lines.push(rrule);
-    lines.push(
+      `UID:${task.id}@home-manual`,
+      `DTSTAMP:${now}`,
+      `DTSTART;VALUE=DATE:${dt}`,
+      `SUMMARY:${icsEscape(title)}`,
+      task.why ? `DESCRIPTION:${icsEscape(task.why)}` : '',
+      rrule,
       'BEGIN:VALARM',
       'ACTION:DISPLAY',
-      `DESCRIPTION:${icsEscape(t.title)}`,
+      `DESCRIPTION:${icsEscape(title)}`,
       'TRIGGER:-PT12H',
       'END:VALARM',
       'END:VEVENT',
@@ -407,5 +345,5 @@ export function buildIcs(tasks, houseName) {
   }
 
   lines.push('END:VCALENDAR');
-  return lines.join('\r\n');
+  return lines.filter(Boolean).join('\r\n');
 }

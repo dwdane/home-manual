@@ -1,7 +1,7 @@
 {
   "name": "Home Manual",
-  "short_name": "Home Manual",
-  "description": "The manual your house didn't come with. Maintenance schedule, appliance registry, and reminders - offline and private.",
+  "short_name": "Manual",
+  "description": "The manual your house didn't come with.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

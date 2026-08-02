@@ -1,262 +1,152 @@
-# Home Manual
+# Home Manual v2.0.0
 
-The manual your house didn't come with. An offline, local-only PWA that builds
-a maintenance schedule from the house you describe, keeps the model numbers
-and filter sizes for everything you own, and counts down warranties. No
-accounts, no servers, no analytics — everything stays on the device.
+The manual your house didn't come with. A private, offline-first web app for
+the whole household: houses, vehicles, and pets - what everything is, what it
+needs, when it last got done, and the photos to prove it.
 
-Version 1.0.1.
+Everything lives on the phone in the browser's local database. Nothing is
+uploaded anywhere, there are no accounts, and it works with no signal.
 
----
+## What's in v2
 
-## What it does
-
-Describe the house once — foundation, water heater type, fireplace, softener,
-shower filter, front-load washer, sprinklers, garden, dog — and the app seeds
-a schedule containing only the tasks that house actually needs. A slab house
-never sees crawlspace checks; no dog means no vaccine reminders.
-
-**Today** shows what's due, bucketed into Overdue / This week / This month /
-Coming up. Mark done (which logs it and computes the next due date) or snooze
-a week. Seasonal tasks are automatically spread across the weeks of their
-month at seed time, so eight spring tasks become two per weekend instead of
-eight on May 1st.
-
-**Schedule** is every task with its cadence. Tap any task to change its
-interval, season, next-due date, notes, product link, or linked Thing — or
-pause it. Add fully custom tasks.
-
-**Things** is the asset registry: fridge, washer, HVAC, TV, the dog. Each
-carries brand, model, serial, location, purchase date, warranty end (with a
-live countdown that goes amber under 90 days), free-form sizes and part
-numbers (each with one-tap **Copy** and **Amazon search** buttons), and saved
-links (the exact reorder page, the manual PDF). Search covers everything, so
-standing in the hardware store you type "furnace" and get the filter size.
-
-**Warranty milestones**: enter the closing date of a new-construction house
-and the app schedules the 60-day punch list, 6-month follow-up, the 11-month
-independent inspection (the important one), and the final claim deadline.
-
-**Reminders**: a local-only PWA cannot push notifications while closed — that
-requires a server. Instead, *Export schedule to calendar (.ics)* turns every
-task into a repeating all-day calendar event with an alert. Import it into
-iOS/Google Calendar once and the phone's native calendar does the nagging.
-Re-export after big schedule changes. The Today tab badge also shows the
-overdue count whenever the app opens.
-
-**Backup / restore**: one JSON file with the profile, tasks, things, and
-history. Use it to move to a new phone or share the setup between spouses'
-phones (each device is independent — this is a deliberate simplicity
-tradeoff, see below).
-
----
-
-## The task library (≈90 tasks)
-
-Seeded per the house profile; every cadence is editable afterward.
-
-- **Air & Heat** — HVAC filter, AC pre-season service, furnace pre-winter
-  service, condensate line flush, condenser coil clean, register vacuuming,
-  humidifier pad, gas fireplace service, chimney sweep (wood), ERV/HRV core.
-- **Water & Plumbing** — tank flush, anode rod, tankless descale, T&P valve
-  test, shower hard-water filter, fridge filter, sediment filter, softener
-  salt, sump pump test, septic pumping, well test, disposal freshen,
-  dishwasher filter, front-loader gasket wipe, washer clean cycle, supply
-  hose inspection, under-sink leak checks, toilet dye test, aerators,
-  shutoff-valve exercise.
-- **Exterior** — gutters (spring + fall), roof look-over, exterior caulk,
-  grading/downspouts, siding wash, garage door lube + safety reverse, deck
-  fastener check, deck reseal, driveway crack seal, crawlspace check,
-  basement perimeter walk, pest inspection, hose bib winterization, window
-  weep holes.
-- **Safety** — monthly detector test, annual battery swap, 10-year detector
-  age check, extinguisher check, dryer vent duct cleaning, GFCI test,
-  emergency kit, radon test.
-- **Deep Cleaning** — windows in/out, fridge coils, range hood filter, oven,
-  ceiling fans, baseboards, mattress rotation, carpet extraction, grout
-  sealing, garage clean-out, bin washing, dishwasher cleaner cycle.
-- **Garden & Yard** — hydrangea pruning, rose pruning, dormant fruit-tree
-  pruning, spring + fall lawn feeding, pre-emergent, aerate/overseed, mulch,
-  shrub feeding, bulb planting, perennial division, tree hazard walk,
-  sprinkler startup and blow-out, mower service.
-- **Pets (dog)** — monthly heartworm, monthly flea/tick, annual exam, rabies
-  booster, DHPP booster, bordetella, license renewal, nail trims. Keep the
-  vaccine certificate dates in the dog's Things entry and set the booster
-  task dates from it.
-- **Warranty** — the four builder-warranty milestones above, seeded from the
-  closing date.
-
----
+- **Multiple subjects.** Add houses, vehicles, and pets; switch between them
+  from the Home screen or the name chip at the top of any tab.
+- **The Manual tab.** The reference half of the app: house facts (sq footage,
+  builder contact, shutoff locations), rooms with dimensions, paint colors
+  and sheens, window sizes, and equipment with model numbers, filter sizes,
+  warranty dates, and Copy / Find buttons for reordering.
+- **Build-your-own tasks.** The task list starts however you want: seeded
+  from the house's features, or empty. Browse ~120 task ideas organized by
+  category, with a + next to each and "Add suggested" per category. Tasks can
+  be unscheduled - they hold their history ("septic last pumped March 2026")
+  without nagging.
+- **Completion flow.** Marking anything done asks when, takes a note (filter
+  brand, mileage), and offers to schedule the next one: the usual cadence,
+  1/3/6/12 months, a picked date, or nothing.
+- **Instructions on tasks.** Common tasks ship with short how-tos (fridge
+  filter, tankless descale, garage-door reverse test); add your own steps,
+  notes, and photos of the manual, tucked inside the task.
+- **Photo library.** Quick camera button, downscaled storage, tagging by
+  room / equipment / kind (photo, receipt, warranty, manual page, paperwork),
+  browsable by month and filterable. Move-in photos and one-year-warranty
+  photos are just photos with dates.
+- **Yearly check-up.** A guided self-inspection walk generated from the
+  house's features. OK / Flag / Skip each item, note and photograph problems,
+  and keep the record.
+- **Vehicles** (gas / hybrid / EV aware: oil, rotations, filters, wipers) and
+  **pets** (species-aware vaccines, meds, chip number, papers).
 
 ## Files
 
-Everything sits in one flat folder — no subdirectories — so the files can be
-uploaded straight from an iPhone through GitHub's web uploader.
+| File | Purpose |
+| --- | --- |
+| `index.html` | App shell: five tabs, setup wizard, inspection screen, sheets |
+| `app.css` | Styling ("shop notebook" theme) |
+| `config.js` | App identity: name, version, database schema, tabs |
+| `app.js` | Screens and interactions |
+| `store.js` | IndexedDB layer, v1 migration, backup/restore |
+| `schedule.js` | Date math, recurrence, seeding, calendar export |
+| `library.js` | Task libraries, wizard fields, inspection bank |
+| `photos.js` | Camera intake, downscaling, thumbnails |
+| `updates.js` | Update detection and force reinstall |
+| `sw.js` | Offline cache (bump `CACHE_VERSION` each release) |
+| `version.json` | Published version (bump each release) |
+| `manifest.webmanifest`, `icon-*.png` | Install metadata |
+| `make-icons.py` | Regenerates the icons |
+| `check-ui.py`, `test-schedule.mjs`, `e2e.py`, `e2e-data.py` | Test suite |
 
-```
-index.html              App shell: five screens, tab bar, modals
-manifest.webmanifest    Install metadata
-sw.js                   Offline service worker with controlled update flow
-app.css                 All styling
-app.js                  UI, wiring, update flow, boot
-library.js              Task content: the library and category definitions
-schedule.js             Profile -> tasks, recurrence math, spreading, .ics
-store.js                IndexedDB persistence and backup/restore
-version.json            Published version number the app polls to detect updates
-icon-192.png            Home screen icon
-icon-512.png            Splash and store icon
-icon-maskable-512.png   Android adaptive icon
-make-icons.py           Regenerates the icon set (uv run --with pillow make-icons.py)
-test-schedule.mjs       Engine smoke tests (node test-schedule.mjs)
-check-ui.py             Static shell checks: ids, hidden elements, version match
-e2e.py                  Headless browser walkthrough of the real user flows
-README.md               This file
-```
+## Hosting (GitHub Pages)
 
-The last three files are development tools and documentation. They are
-harmless to upload but are not required for the app to run — if you want the
-smallest possible upload, skip them.
+All files sit at the repo root with Pages serving the main branch. Upload
+replacements through github.com in Safari; Pages redeploys in about a minute.
 
-## Installing it
+**Keep personal data out of the repo.** The repo is public: no addresses, no
+starter/backup JSON files, no photos. Pre-filled starter files for a specific
+house are private documents - keep them in the Files app or iCloud and import
+them on-device.
 
-Live at **https://dwdane.github.io/home-manual/**
+## Installing on a phone
 
-It is a Progressive Web App, so there is no app store and no download. Open
-the link, add it to your home screen, and it behaves like a native app:
-full-screen, its own icon, works with no signal. Every install is
-independent — the data lives on that device only.
+**iPhone:** open the site in **Safari** (must be Safari), Share button ->
+**Add to Home Screen**. **Android:** Chrome -> menu -> **Add to Home
+screen** / **Install app**.
 
-### iPhone and iPad
+The app's data belongs to the browser profile of the installed icon. Deleting
+the icon (iOS) or clearing site data erases it - export a backup first.
 
-Must be **Safari**. Chrome and Firefox on iOS cannot install web apps.
+## Starter files
 
-1. Open https://dwdane.github.io/home-manual/ in Safari.
-2. Tap the **Share** button (the square with the up arrow).
-3. Scroll down and tap **Add to Home Screen**, then **Add**.
-4. Launch it from the new icon, not from Safari — that is what gives you the
-   full-screen app with no address bar.
+A starter is just a backup JSON with a house pre-entered (rooms, dimensions,
+window schedule, builder contact). **Restore on a fresh install only** -
+restoring REPLACES everything in the app. On the first-run screen, tap
+**"Have a backup or starter file? Restore it instead"** and pick the file
+from the Files app.
 
-### Android
+Starters arrive with an **empty task list** on purpose. To add tasks: Tasks
+tab -> **+** -> **Browse task ideas** -> add items one at a time or **Add
+suggested** per category. Then check the pre-filled features (More -> Edit
+next to the house) and correct anything guessed - heat type, water heater,
+range, washer/dryer.
 
-Chrome, Edge, Samsung Internet and Brave all work.
+## Upgrading from v1
 
-1. Open the link in Chrome.
-2. Either accept the **Install app** prompt that appears at the bottom, or tap
-   the **⋮** menu → **Add to Home screen** / **Install app**.
-3. Confirm **Install**. It lands in the app drawer like any other app.
+Nothing to do. v2 uses the same database; on first launch it converts the v1
+profile into a house, keeps every task, completion, and equipment record,
+and carries on. The update banner appears on the old version once v2 is
+deployed - tap **Load it now**.
 
-### Mac
+## Where photos live (read this)
 
-- **Safari:** open the link, then **File → Add to Dock**.
-- **Chrome or Edge:** open the link, click the install icon in the address bar
-  (a monitor with a down arrow), or **⋮ → Cast, save and share → Install page
-  as app**.
+The browser gives a web app no way to write into the iOS/Android photo
+library silently, so:
 
-### Windows
+- **Taken inside the app** (the in-app camera button): stored ONLY in the
+  app and its backups. The photo library never sees it.
+- **Taken with the phone's Camera app, then added via "Choose from my
+  photos"**: lives in BOTH places. The app keeps its downscaled copy; the
+  original stays in the camera roll. This is the durable habit for anything
+  that matters (warranty damage, receipts).
+- Any photo already in the app can be pushed out with **"Save a copy to my
+  phone"** on the photo screen - it opens the share sheet (Save Image /
+  Save to Files).
+- **Backup + photos** in More exports everything, images included, as one
+  file you can park in iCloud.
 
-**Chrome or Edge:** open the link and click the install icon at the right of
-the address bar, or **⋮ → Apps → Install this site as an app**. It gets a
-Start menu entry and its own window.
+## Updates
 
-### Using it without installing
+The app checks `version.json` on every launch and foreground return, and
+shows a banner when a new version is downloaded and ready. Manual check and
+**Force reinstall** (for a stuck cache; data untouched) live in More.
 
-The link works fine in any browser tab. You only lose the home screen icon,
-full-screen chrome, and reliable offline caching. Installing is worth it on
-the phone that will actually be used in the garage or the garden.
+If iOS ever refuses to pick up a deploy: upload the new files, delete the
+home-screen icon, then Settings -> Apps -> Safari -> Advanced -> Website
+Data -> delete the `github.io` entry, reopen the site, reinstall. Data does
+not survive that path - export a backup first.
 
-### Notes
+## Backups
 
-- **Data does not sync between devices.** Two phones are two separate
-  databases. Move a setup with Settings → *Export backup*, then *Restore* on
-  the other device.
-- **Nothing is uploaded, ever.** No account, no server, no analytics. The
-  house profile, tasks, things and history live in the browser's local
-  database on that one device — which also means clearing site data or
-  deleting the app erases it. Export a backup occasionally.
-- **First load needs a connection** to cache the app. After that it is fully
-  offline.
+More -> Backup writes a JSON file (tags and captions only) or Backup +
+photos (full, much larger). Restore replaces everything. Photos are stored
+downscaled (~1600 px JPEG) to keep the browser's storage quota comfortable.
 
-## Shipping an update
+## Releasing a change
 
-Three files must agree, or the phone will keep running the old build:
+1. Edit the files.
+2. Bump the version in **three places** or updates will not install:
+   `config.js` (`version`), `sw.js` (`CACHE_VERSION`), `version.json`
+   (`version`).
+3. Run the checks:
 
-1. `version.json` &mdash; bump `version` (and optionally `released` / `notes`).
-2. `sw.js` &mdash; bump `CACHE_VERSION`.
-3. `app.js` &mdash; bump `APP_VERSION` to the same string as `version.json`.
+   ```
+   python3 check-ui.py
+   node test-schedule.mjs
+   python3 e2e.py          # needs: pip install playwright; playwright install chromium
+   python3 e2e-data.py
+   ```
 
-Then upload the changed files to the repo (*Add file* &rarr; *Upload files*,
-overwriting). Within a minute or two of publishing, opening the app will
-detect the new version, download it in the background, and show a "Version
-x.y.z is ready" banner. Tapping it swaps to the new build immediately.
+4. Upload everything to the repo root.
 
-How the detection works, and why it is belt-and-braces:
-
-- `version.json` is fetched with `cache: 'no-store'` on every launch and every
-  time the app returns to the foreground. It is the authority on what is
-  published, and it is deliberately excluded from the offline cache-first
-  strategy in the service worker.
-- The service worker registration uses `updateViaCache: 'none'`, so `sw.js`
-  itself is never served from the HTTP cache &mdash; the single most common
-  reason a PWA never notices a deployment.
-- If the version manifest says a new build exists but the worker has not
-  picked it up (a stale CDN edge, a wedged worker), Settings says so plainly
-  and offers **Force reinstall**, which deletes every cache, unregisters the
-  worker, and reloads from the network. House data lives in IndexedDB and is
-  untouched by this.
-
-Note that GitHub Pages puts a CDN in front of the files, so a fresh deploy can
-take a few minutes to reach every edge. If the app says an update is available
-but keeps not installing it, wait five minutes before reaching for Force
-reinstall.
-
-### Hosting notes
-
-The app is served from GitHub Pages out of the `dwdane/home-manual` repository,
-root of the `main` branch. All files sit flat at the repo root and every path
-in the code is relative, so it works from a project subpath without
-configuration &mdash; and it would work unchanged on Netlify, Cloudflare Pages,
-or any other static host.
-
-The repository is public, as GitHub Pages requires on the free tier. None of
-the house data is in it: the profile, tasks, things and history exist only in
-the browser database on each device and are never uploaded.
-
-## Testing before you deploy
-
-Run all three from the project folder. They take a few seconds and catch the
-three classes of bug that reach a phone:
-
-```
-node test-schedule.mjs                        # recurrence, seeding, .ics
-python3 check-ui.py                           # ids, hidden elements, versions
-uv run --with playwright python e2e.py        # real browser walkthrough
-```
-
-`e2e.py` needs a browser once: `python -m playwright install chromium`. It
-drives first-run setup, tab navigation, task completion, both modals and the
-update banner in a real headless Chromium, asserting after every step that no
-overlay is covering the interface, and drops screenshots in `screens/`.
-
-That last assertion exists because of a shipped bug worth remembering. The
-browser's built-in `[hidden]` rule is weaker than any author rule that sets
-`display`, so `.modal { display: flex }` on an element marked `hidden`
-rendered a full-screen scrim over the entire app, permanently. Syntax checks
-and static analysis both pass on that code. The stylesheet now opens with a
-global `[hidden] { display: none !important }` and `check-ui.py` fails the
-build if it ever goes missing.
-
-## Design decisions worth knowing
-
-- **Dates are ISO strings** (`YYYY-MM-DD`), compared lexically. No timezone
-  math anywhere, no midnight-off-by-one bugs.
-- **Turning a profile feature off pauses its tasks** rather than deleting
-  them, so completion history and any customizations survive toggling.
-- **Seasonal windows assume a temperate northern-hemisphere climate.** They
-  are defaults; edit any task's month. Bigleaf hydrangeas that bloom on old
-  wood should be moved to a post-bloom window — the task's note says so.
-- **No sync.** Two phones are two databases; the backup file is the transfer
-  mechanism. Real multi-device sync means a server and accounts, which is a
-  different app.
-- **No push notifications**, for the same serverless reason. The .ics export
-  is the notification strategy, and it is genuinely more dependable than web
-  push on iOS.
+`check-ui.py` fails the release if the three versions disagree, if a JS
+module is missing from the service worker precache, or if the global
+`[hidden]` CSS guard is ever removed (removing it turns every closed sheet
+into an invisible full-screen overlay that blocks all taps - the v1.0.0 bug).
